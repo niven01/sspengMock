@@ -968,9 +968,13 @@ ${{formatJson(req.body)}}
             )
         
         # Return JSON data for API requests
+        # Force reload from file in case we're on a different instance
+        global REQUEST_LOG
+        REQUEST_LOG = load_request_log()
         data = REQUEST_LOG.get(path, [])
         
         logging.info("inspect_endpoint: Raw data for path '%s': %s", path, data)
+        logging.info("inspect_endpoint: Current REQUEST_LOG keys after reload: %s", list(REQUEST_LOG.keys()))
         
         # Temporarily remove filtering to see all data
         if not isinstance(data, list):
