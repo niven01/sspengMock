@@ -4,7 +4,6 @@ import azure.functions as func
 from datetime import datetime
 import os
 import uuid
-import tempfile
 
 app = func.FunctionApp()
 
@@ -12,59 +11,17 @@ app = func.FunctionApp()
 INSTANCE_ID = str(uuid.uuid4())[:8]
 INSTANCE_START_TIME = datetime.utcnow().isoformat() + "Z"
 
-# Use a persistent storage solution instead of temp files
-# For now, keep the temp file as fallback but make it more robust
-TEMP_FILE_PATH = os.path.join(tempfile.gettempdir(), f"mock_api_requests_{os.environ.get('WEBSITE_INSTANCE_ID', 'local')}.json")
+# In-memory storage only - simpler and more reliable for Azure Functions
+# Each instance will have its own REQUEST_LOG, no cross-instance persistence
+REQUEST_LOG = {}
 
-def load_request_log():
-    """Load REQUEST_LOG from file if it exists, with better error handling"""
-    logging.info(f"Attempting to load REQUEST_LOG from {TEMP_FILE_PATH}")
-    logging.info(f"Instance ID: {INSTANCE_ID}, Website Instance: {os.environ.get('WEBSITE_INSTANCE_ID', 'local')}")
-    
-    try:
-        if os.path.exists(TEMP_FILE_PATH):
-            with open(TEMP_FILE_PATH, 'r') as f:
-                data = json.load(f)
-                logging.info(f"✅ Successfully loaded REQUEST_LOG from {TEMP_FILE_PATH} with {len(data)} keys")
-                logging.info(f"Loaded keys: {list(data.keys())}")
-                return data
-        else:
-            logging.info(f"❌ File {TEMP_FILE_PATH} does not exist")
-    except Exception as e:
-        logging.warning(f"❌ Failed to load REQUEST_LOG from file: {e}")
-    
-    logging.info(f"🆕 Starting with empty REQUEST_LOG")
-    return {}
-
-def save_request_log():
-    """Save REQUEST_LOG to file with better error handling"""
-    try:
-        # Create directory if it doesn't exist
-        os.makedirs(os.path.dirname(TEMP_FILE_PATH), exist_ok=True)
-        
-        with open(TEMP_FILE_PATH, 'w') as f:
-            json.dump(REQUEST_LOG, f, default=str, indent=2)
-        
-        # Verify the file was written
-        if os.path.exists(TEMP_FILE_PATH):
-            file_size = os.path.getsize(TEMP_FILE_PATH)
-            logging.info(f"✅ Successfully saved REQUEST_LOG to {TEMP_FILE_PATH} ({file_size} bytes)")
-            logging.info(f"💾 Saved {len(REQUEST_LOG)} keys: {list(REQUEST_LOG.keys())}")
-        else:
-            logging.error(f"❌ File was not created at {TEMP_FILE_PATH}")
-    except Exception as e:
-        logging.error(f"❌ Failed to save REQUEST_LOG to file: {e}")
-        logging.exception("Full save error traceback:")
-
-# Load existing data and add debug info
-REQUEST_LOG = load_request_log()
+# Add debug info about this instance
 REQUEST_LOG.setdefault("_debug", []).append({
     "timestamp": INSTANCE_START_TIME,
-    "message": f"Instance started (ID: {INSTANCE_ID})",
+    "message": f"Instance started (ID: {INSTANCE_ID}) - In-memory storage only",
     "instance_id": INSTANCE_ID,
-    "temp_file_path": TEMP_FILE_PATH,
     "website_instance_id": os.environ.get('WEBSITE_INSTANCE_ID', 'Not set'),
-    "note": "File persistence may not work across instance restarts in Azure Functions"
+    "note": "Using in-memory storage - data persists within this instance only"
 })
 
 @app.route(
@@ -175,7 +132,6 @@ def main_mock_endpoint(req: func.HttpRequest) -> func.HttpResponse:
                 record["body"] = None
 
         REQUEST_LOG.setdefault(path, []).append(record)
-        save_request_log()  # Persist to file
         logging.info(
             "main_mock_endpoint: stored request for '%s' (total=%d)",
             path,
@@ -967,20 +923,11 @@ ${{formatJson(req.body)}}
                 status_code=200,
             )
         
-        # Return JSON data for API requests
-        # Force reload from file in case we're on a different instance
+        # Return JSON data for API requests - pure in-memory
         data = REQUEST_LOG.get(path, [])
         
-        # Try to reload from file to get latest data
-        try:
-            fresh_data = load_request_log()
-            if fresh_data and path in fresh_data:
-                data = fresh_data[path]
-                logging.info("inspect_endpoint: Loaded fresh data from file")
-        except Exception as e:
-            logging.warning(f"inspect_endpoint: Could not reload from file: {e}")
-        
         logging.info("inspect_endpoint: Raw data for path '%s': %s", path, data)
+        logging.info("inspect_endpoint: Current REQUEST_LOG keys: %s", list(REQUEST_LOG.keys()))
         
         # Temporarily remove filtering to see all data
         if not isinstance(data, list):
@@ -1021,31 +968,8 @@ ${{formatJson(req.body)}}
     auth_level=func.AuthLevel.ANONYMOUS,
 )
 def health_check(req: func.HttpRequest) -> func.HttpResponse:
-    """Health check with detailed Azure Functions environment info"""
+    """Health check with Azure Functions environment info"""
     logging.info("health_check: START")
-    
-    # Check file system status
-    file_exists = os.path.exists(TEMP_FILE_PATH)
-    file_size = 0
-    file_permissions = "N/A"
-    temp_dir_writable = False
-    
-    try:
-        if file_exists:
-            file_size = os.path.getsize(TEMP_FILE_PATH)
-            file_permissions = oct(os.stat(TEMP_FILE_PATH).st_mode)[-3:]
-    except Exception as e:
-        logging.warning(f"Error checking file stats: {e}")
-    
-    try:
-        # Test if we can write to temp directory
-        test_file = os.path.join(tempfile.gettempdir(), f"test_{INSTANCE_ID}.tmp")
-        with open(test_file, 'w') as f:
-            f.write("test")
-        os.remove(test_file)
-        temp_dir_writable = True
-    except Exception as e:
-        logging.warning(f"Temp directory not writable: {e}")
     
     health_info = {
         "status": "healthy",
@@ -1061,22 +985,18 @@ def health_check(req: func.HttpRequest) -> func.HttpResponse:
             "functions_worker_runtime": os.environ.get('FUNCTIONS_WORKER_RUNTIME', 'Not set'),
         },
         
-        # File System Status
-        "file_system": {
-            "temp_file_path": TEMP_FILE_PATH,
-            "file_exists": file_exists,
-            "file_size_bytes": file_size,
-            "file_permissions": file_permissions,
-            "temp_dir": tempfile.gettempdir(),
-            "temp_dir_writable": temp_dir_writable,
-            "cwd": os.getcwd(),
+        # Storage Info
+        "storage_info": {
+            "type": "in-memory",
+            "persistence": "instance-only",
+            "note": "Data persists within this instance lifecycle only"
         },
         
         # REQUEST_LOG Status
         "request_log_keys": list(REQUEST_LOG.keys()),
         "request_log_full": REQUEST_LOG,
         "total_requests": sum(len(v) if isinstance(v, list) else 0 for v in REQUEST_LOG.values()),
-        "version": "1.1",
+        "version": "2.0-inmemory",
         "function_url": str(req.url),
         "function_method": req.method,
         "available_routes": [
