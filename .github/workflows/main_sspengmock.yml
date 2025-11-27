@@ -8,7 +8,6 @@ on:
 
 env:
   PYTHON_VERSION: "3.13"
-  FUNCTION_FOLDER: "MockApiFunction"
 
 jobs:
   build:
@@ -29,7 +28,7 @@ jobs:
       - name: Create deployment package
         run: |
           zip -r release.zip \
-            ${{ env.FUNCTION_FOLDER }} \
+            function_app.py \
             host.json \
             requirements.txt
 
