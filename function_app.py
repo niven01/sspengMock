@@ -324,24 +324,24 @@ def inspect_all_endpoint(req: func.HttpRequest) -> func.HttpResponse:
             )
         
         # Return JSON data for API requests - show all paths
-        all_data = {{path: {{"path": path, "requests": requests}} for path, requests in REQUEST_LOG.items()}}
+        all_data = {path: {"path": path, "requests": requests} for path, requests in REQUEST_LOG.items()}
         
         return func.HttpResponse(
-            body=json.dumps({{"all_paths": all_data, "total_requests": sum(len(v) for v in REQUEST_LOG.values())}}, indent=2),
+            body=json.dumps({"all_paths": all_data, "total_requests": sum(len(v) if isinstance(v, list) else 0 for v in REQUEST_LOG.values())}, indent=2),
             mimetype="application/json",
             status_code=200,
-            headers={{
+            headers={
                 "Access-Control-Allow-Origin": "*",
                 "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
                 "Access-Control-Allow-Headers": "Content-Type, Accept",
                 "Cache-Control": "no-cache"
-            }}
+            }
         )
 
     except Exception as e:
         logging.exception("inspect_all_endpoint: FAILED with unhandled exception: %s", e)
         return func.HttpResponse(
-            body=json.dumps({{"error": "internal server error"}}),
+            body=json.dumps({"error": "internal server error", "details": str(e)}),
             mimetype="application/json",
             status_code=500,
         )
@@ -880,6 +880,18 @@ ${{formatJson(req.body)}}
         
         # Return JSON data for API requests
         data = REQUEST_LOG.get(path, [])
+        
+        # Filter out non-request data (like debug entries)
+        if isinstance(data, list):
+            # Filter out debug/metadata entries that might not have the expected structure
+            filtered_data = []
+            for item in data:
+                if isinstance(item, dict) and 'timestamp' in item and 'method' in item:
+                    filtered_data.append(item)
+            data = filtered_data
+        else:
+            data = []
+            
         logging.info(
             "inspect_endpoint: returning %d records for path '%s'",
             len(data),
