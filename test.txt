@@ -1,0 +1,2 @@
+https://sspengmock-e6ghe2fthbdqhaeb.uksouth-01.azurewebsites.net/api/MockApiFunction/
+http://localhost:7071/api/MockApiFunction/

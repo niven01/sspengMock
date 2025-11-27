@@ -52,6 +52,7 @@ def main_mock_endpoint(req: func.HttpRequest) -> func.HttpResponse:
             "message": "Mock endpoint captured your request.",
             "path": path,
             "request_id": len(REQUEST_LOG[path]) - 1,
+            "captured_request": record,
         }
 
         logging.info(
@@ -120,6 +121,7 @@ def mock_endpoint(req: func.HttpRequest) -> func.HttpResponse:
             "message": "Mock endpoint captured your request.",
             "path": path,
             "request_id": len(REQUEST_LOG[path]) - 1,
+            "captured_request": record,
         }
 
         logging.info(
@@ -155,6 +157,460 @@ def inspect_endpoint(req: func.HttpRequest) -> func.HttpResponse:
         path = req.route_params.get("path", "")
         logging.info("inspect_endpoint: path='%s'", path)
         
+        # Check if this is a request for the HTML interface
+        accept_header = req.headers.get("accept", "")
+        if "text/html" in accept_header and "application/json" not in accept_header:
+            # Return HTML interface
+            html_content = f"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Inspector - {path}</title>
+    <style>
+        body {{
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }}
+        .container {{
+            max-width: 1400px;
+            margin: 0 auto;
+        }}
+        .header {{
+            background: linear-gradient(135deg, #8B5A96, #6A4C93);
+            color: white;
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            box-shadow: 0 8px 32px rgba(139, 90, 150, 0.3);
+        }}
+        .path-info {{
+            background: rgba(106, 76, 147, 0.9);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            backdrop-filter: blur(10px);
+        }}
+        .request-card {{
+            background: white;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }}
+        .request-header {{
+            background: linear-gradient(135deg, #9B59B6, #8E44AD);
+            color: white;
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }}
+        .request-header:hover {{
+            background: linear-gradient(135deg, #A569BD, #9B59B6);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(155, 89, 182, 0.4);
+        }}
+        .method {{
+            font-weight: bold;
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            margin-right: 10px;
+        }}
+        .method-get {{ background: #27ae60; }}
+        .method-post {{ background: #e74c3c; }}
+        .method-put {{ background: #f39c12; }}
+        .method-delete {{ background: #8e44ad; }}
+        .method-patch {{ background: #16a085; }}
+        .request-summary {{
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }}
+        .request-body {{
+            padding: 0;
+            display: none;
+        }}
+        .request-body.expanded {{
+            display: block;
+        }}
+        .section-grid {{
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            padding: 20px;
+        }}
+        .section {{
+            background: rgba(248, 249, 250, 0.95);
+            border-radius: 8px;
+            padding: 15px;
+            border-left: 4px solid #9B59B6;
+            backdrop-filter: blur(5px);
+        }}
+        .section-title {{
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 10px;
+            font-size: 1.1em;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }}
+        .section-body {{
+            grid-column: 1 / -1;
+        }}
+        .key-value-grid {{
+            display: grid;
+            gap: 8px;
+        }}
+        .key-value-item {{
+            display: grid;
+            grid-template-columns: 200px 1fr;
+            gap: 10px;
+            padding: 8px 0;
+            border-bottom: 1px solid #e9ecef;
+        }}
+        .key-value-item:last-child {{
+            border-bottom: none;
+        }}
+        .key {{
+            font-weight: 600;
+            color: #495057;
+            word-break: break-word;
+        }}
+        .value {{
+            font-family: 'Consolas', 'Monaco', monospace;
+            background: white;
+            padding: 4px 8px;
+            border-radius: 3px;
+            border: 1px solid #dee2e6;
+            word-break: break-all;
+        }}
+        .json-body {{
+            background: white;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 15px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            white-space: pre-wrap;
+            overflow-x: auto;
+            max-height: 300px;
+            overflow-y: auto;
+        }}
+        .empty-data {{
+            color: #6c757d;
+            font-style: italic;
+            text-align: center;
+            padding: 20px;
+        }}
+        .no-requests {{
+            text-align: center;
+            color: #7f8c8d;
+            padding: 40px;
+            background: white;
+            border-radius: 8px;
+        }}
+        .auto-refresh {{
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: linear-gradient(135deg, #9B59B6, #8E44AD);
+            color: white;
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-size: 0.8em;
+            z-index: 1000;
+            cursor: pointer;
+            user-select: none;
+        }}
+        .auto-refresh.paused {{
+            background: #e74c3c;
+        }}
+        .auto-refresh:hover {{
+            opacity: 0.8;
+        }}
+        .toggle-icon {{
+            transition: transform 0.3s ease;
+        }}
+        .toggle-icon.expanded {{
+            transform: rotate(180deg);
+        }}
+        .highlight {{
+            background: #fff3cd !important;
+            border-color: #ffeaa7 !important;
+        }}
+        .important-headers {{
+            background: #e8f5e8 !important;
+        }}
+        @media (max-width: 768px) {{
+            .section-grid {{
+                grid-template-columns: 1fr;
+            }}
+            .key-value-item {{
+                grid-template-columns: 1fr;
+                gap: 5px;
+            }}
+            .container {{
+                padding: 10px;
+            }}
+        }}
+    </style>
+</head>
+<body>
+    <div class="auto-refresh" id="auto-refresh-btn" onclick="toggleAutoRefresh()">🔄 Auto-refreshing every 2s</div>
+    
+    <div class="container">
+        <div class="header">
+            <h1>🔍 API Inspector</h1>
+            <p>Real-time monitoring of captured requests</p>
+        </div>
+        
+        <div class="path-info">
+            <strong>Monitoring Path:</strong> <code>{path if path else '(all paths)'}</code>
+        </div>
+        
+        <div id="requests-container">
+            <div class="no-requests">
+                Loading requests...
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const path = '{path}';
+        const container = document.getElementById('requests-container');
+        let expandedRequests = new Set(); // Track which requests are expanded
+        let autoRefreshEnabled = true;
+        let refreshInterval;
+        let requestCounter = 0; // Counter to assign stable IDs to requests
+        let lastRequestsHash = ''; // To detect if data actually changed
+        
+        function formatJson(obj) {{
+            if (obj === null || obj === undefined) {{
+                return '<div class="empty-data">No data</div>';
+            }}
+            if (typeof obj === 'string' && obj === '') {{
+                return '<div class="empty-data">Empty</div>';
+            }}
+            if (typeof obj === 'object' && Object.keys(obj).length === 0) {{
+                return '<div class="empty-data">No data</div>';
+            }}
+            return JSON.stringify(obj, null, 2);
+        }}
+        
+        function getMethodClass(method) {{
+            const methodLower = method.toLowerCase();
+            return `method method-${{methodLower}}`;
+        }}
+        
+        function isImportantHeader(key) {{
+            const important = ['content-type', 'authorization', 'user-agent', 'host', 'content-length'];
+            return important.includes(key.toLowerCase());
+        }}
+        
+        function renderKeyValueGrid(data, isHeaders = false) {{
+            if (!data || Object.keys(data).length === 0) {{
+                return '<div class="empty-data">No data available</div>';
+            }}
+            
+            return Object.entries(data).map(([key, value]) => {{
+                const itemClass = isHeaders && isImportantHeader(key) ? 'key-value-item important-headers' : 'key-value-item';
+                return `
+                    <div class="${{itemClass}}">
+                        <div class="key">${{key}}</div>
+                        <div class="value">${{typeof value === 'string' ? value : JSON.stringify(value)}}</div>
+                    </div>
+                `;
+            }}).join('');
+        }}
+        
+        function generateRequestHash(requests) {{
+            // Create a hash of the requests to detect changes
+            return JSON.stringify(requests.map(r => ({{
+                timestamp: r.timestamp,
+                method: r.method,
+                bodyLength: JSON.stringify(r.body).length
+            }})));
+        }}
+        
+        function renderRequests(data) {{
+            const requests = data.requests || [];
+            
+            if (requests.length === 0) {{
+                container.innerHTML = '<div class="no-requests">No requests captured yet for this path.</div>';
+                requestCounter = 0;
+                return;
+            }}
+            
+            // Check if the data actually changed
+            const currentHash = generateRequestHash(requests);
+            if (currentHash === lastRequestsHash) {{
+                // Data hasn't changed, don't re-render
+                return;
+            }}
+            lastRequestsHash = currentHash;
+            
+            // Reset counter if we have fewer requests (cleared or reset)
+            if (requests.length < requestCounter) {{
+                requestCounter = 0;
+                expandedRequests.clear();
+            }}
+            
+            const html = requests.map((req, index) => {{
+                const timestamp = new Date(req.timestamp).toLocaleString();
+                const hasBody = req.body && (typeof req.body === 'object' ? Object.keys(req.body).length > 0 : req.body !== '');
+                const bodyClass = hasBody ? 'highlight' : '';
+                
+                // Use the index from the end as a stable ID (newest requests get higher IDs)
+                const requestId = `req-${{requests.length - 1 - index}}`;
+                const isExpanded = expandedRequests.has(requestId);
+                const expandedClass = isExpanded ? 'expanded' : '';
+                const toggleIcon = isExpanded ? '▲' : '▼';
+                
+                return `
+                    <div class="request-card">
+                        <div class="request-header" onclick="toggleRequest('${{requestId}}')">
+                            <div class="request-summary">
+                                <span class="${{getMethodClass(req.method)}}">${{req.method}}</span>
+                                <strong>${{req.path || 'Unknown'}}</strong>
+                                ${{hasBody ? '<span style="background: #f39c12; padding: 2px 6px; border-radius: 3px; font-size: 0.7em;">HAS BODY</span>' : ''}}
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <span>${{timestamp}}</span>
+                                <span class="toggle-icon ${{expandedClass}}" id="toggle-${{requestId}}">${{toggleIcon}}</span>
+                            </div>
+                        </div>
+                        <div class="request-body ${{expandedClass}}" id="body-${{requestId}}">
+                            <div class="section-grid">
+                                <div class="section">
+                                    <div class="section-title">
+                                        📋 Query Parameters
+                                    </div>
+                                    <div class="key-value-grid">
+                                        ${{renderKeyValueGrid(req.query)}}
+                                    </div>
+                                </div>
+                                <div class="section">
+                                    <div class="section-title">
+                                        🔧 Important Headers
+                                    </div>
+                                    <div class="key-value-grid">
+                                        ${{renderKeyValueGrid(
+                                            Object.fromEntries(
+                                                Object.entries(req.headers || {{}}).filter(([key]) => isImportantHeader(key))
+                                            ), true
+                                        )}}
+                                    </div>
+                                </div>
+                                <div class="section section-body ${{bodyClass}}">
+                                    <div class="section-title">
+                                        📦 Request Body ${{hasBody ? '(Contains Data)' : '(Empty)'}}
+                                    </div>
+                                    <div class="json-body">
+${{formatJson(req.body)}}
+                                    </div>
+                                </div>
+                                <div class="section">
+                                    <div class="section-title">
+                                        📡 All Headers
+                                    </div>
+                                    <div class="key-value-grid">
+                                        ${{renderKeyValueGrid(req.headers, true)}}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }}).join(''); // Don't reverse - keep original order with newest first
+            
+            container.innerHTML = html;
+            requestCounter = requests.length;
+        }}
+        
+        function toggleRequest(requestId) {{
+            const body = document.getElementById(`body-${{requestId}}`);
+            const toggle = document.getElementById(`toggle-${{requestId}}`);
+            
+            if (expandedRequests.has(requestId)) {{
+                expandedRequests.delete(requestId);
+                body.classList.remove('expanded');
+                toggle.classList.remove('expanded');
+                toggle.textContent = '▼';
+            }} else {{
+                expandedRequests.add(requestId);
+                body.classList.add('expanded');
+                toggle.classList.add('expanded');
+                toggle.textContent = '▲';
+            }}
+        }}
+        
+        function toggleAutoRefresh() {{
+            const btn = document.getElementById('auto-refresh-btn');
+            autoRefreshEnabled = !autoRefreshEnabled;
+            
+            if (autoRefreshEnabled) {{
+                btn.textContent = '🔄 Auto-refreshing every 2s';
+                btn.classList.remove('paused');
+                startAutoRefresh();
+            }} else {{
+                btn.textContent = '⏸️ Auto-refresh paused (click to resume)';
+                btn.classList.add('paused');
+                clearInterval(refreshInterval);
+            }}
+        }}
+        
+        function fetchData() {{
+            if (!autoRefreshEnabled) return;
+            
+            const url = window.location.pathname;
+            fetch(url, {{
+                headers: {{
+                    'Accept': 'application/json'
+                }}
+            }})
+            .then(response => response.json())
+            .then(data => {{
+                renderRequests(data);
+            }})
+            .catch(error => {{
+                console.error('Error fetching data:', error);
+                container.innerHTML = '<div class="no-requests">Error loading requests. Check console for details.</div>';
+            }});
+        }}
+        
+        function startAutoRefresh() {{
+            refreshInterval = setInterval(fetchData, 2000);
+        }}
+        
+        // Make functions available globally
+        window.toggleRequest = toggleRequest;
+        window.toggleAutoRefresh = toggleAutoRefresh;
+        
+        // Initial load
+        fetchData();
+        
+        // Start auto-refresh
+        startAutoRefresh();
+    </script>
+</body>
+</html>
+"""
+            return func.HttpResponse(
+                body=html_content,
+                mimetype="text/html",
+                status_code=200,
+            )
+        
+        # Return JSON data for API requests
         data = REQUEST_LOG.get(path, [])
         logging.info(
             "inspect_endpoint: returning %d records for path '%s'",
