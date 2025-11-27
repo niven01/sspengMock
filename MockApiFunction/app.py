@@ -14,10 +14,12 @@ REQUEST_LOG = {}
     auth_level=func.AuthLevel.ANONYMOUS,
 )
 def mock_endpoint(req: func.HttpRequest) -> func.HttpResponse:
-    logging.info("mock_endpoint: received %s %s", req.method, req.url)
-
+    logging.info("mock_endpoint: START %s %s", req.method, req.url)
+    
     try:
         path = req.route_params.get("path", "")
+        logging.info("mock_endpoint: path='%s'", path)
+        
         record = {
             "timestamp": datetime.utcnow().isoformat() + "Z",
             "method": req.method,
@@ -41,7 +43,7 @@ def mock_endpoint(req: func.HttpRequest) -> func.HttpResponse:
 
         REQUEST_LOG.setdefault(path, []).append(record)
         logging.info(
-            "mock_endpoint: captured request for path '%s' (total=%d)",
+            "mock_endpoint: stored request for '%s' (total=%d)",
             path,
             len(REQUEST_LOG[path]),
         )
@@ -67,7 +69,7 @@ def mock_endpoint(req: func.HttpRequest) -> func.HttpResponse:
 
     except Exception as e:
         # log full stack trace and return a safe 500
-        logging.exception("mock_endpoint: unhandled exception: %s", e)
+        logging.exception("mock_endpoint: FAILED with unhandled exception: %s", e)
         return func.HttpResponse(
             body=json.dumps({"error": "internal server error"}),
             mimetype="application/json",
@@ -80,10 +82,12 @@ def mock_endpoint(req: func.HttpRequest) -> func.HttpResponse:
     auth_level=func.AuthLevel.ANONYMOUS,
 )
 def inspect_endpoint(req: func.HttpRequest) -> func.HttpResponse:
-    logging.info("inspect_endpoint: received %s %s", req.method, req.url)
-
+    logging.info("inspect_endpoint: START %s %s", req.method, req.url)
+    
     try:
         path = req.route_params.get("path", "")
+        logging.info("inspect_endpoint: path='%s'", path)
+        
         data = REQUEST_LOG.get(path, [])
         logging.info(
             "inspect_endpoint: returning %d records for path '%s'",
@@ -98,7 +102,7 @@ def inspect_endpoint(req: func.HttpRequest) -> func.HttpResponse:
         )
 
     except Exception as e:
-        logging.exception("inspect_endpoint: unhandled exception: %s", e)
+        logging.exception("inspect_endpoint: FAILED with unhandled exception: %s", e)
         return func.HttpResponse(
             body=json.dumps({"error": "internal server error"}),
             mimetype="application/json",
