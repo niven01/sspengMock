@@ -60,9 +60,11 @@ def save_request_log():
 REQUEST_LOG = load_request_log()
 REQUEST_LOG.setdefault("_debug", []).append({
     "timestamp": INSTANCE_START_TIME,
-    "message": "Instance started",
+    "message": f"Instance started (ID: {INSTANCE_ID})",
     "instance_id": INSTANCE_ID,
-    "temp_file_path": TEMP_FILE_PATH
+    "temp_file_path": TEMP_FILE_PATH,
+    "website_instance_id": os.environ.get('WEBSITE_INSTANCE_ID', 'Not set'),
+    "note": "File persistence may not work across instance restarts in Azure Functions"
 })
 
 @app.route(
