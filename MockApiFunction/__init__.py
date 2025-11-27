@@ -1,27 +1,23 @@
 import json
-import logging
 import azure.functions as func
+import logging
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
     logging.info("Mock API function processed a request.")
 
-    # Parse incoming JSON safely
-    try:
-        body = req.get_json()
-    except ValueError:
-        body = None
+    # Safely parse JSON body
+    body = req.get_json(silent=True) or {}
 
-    # Example mock response (customize as needed)
-    response_payload = {
-        "status": "success",
-        "message": "Mock API response",
-        "request_body": body,
-        "query_params": req.params,
-        "path": req.url
+    response = {
+        "message": "Mock API Response",
+        "method": req.method,
+        "path": req.url,
+        "query": dict(req.params),
+        "body": body
     }
 
     return func.HttpResponse(
-        json.dumps(response_payload),
-        mimetype="application/json",
-        status_code=200
+        json.dumps(response),
+        status_code=200,
+        mimetype="application/json"
     )
