@@ -429,21 +429,19 @@ def inspect_endpoint(req: func.HttpRequest) -> func.HttpResponse:
         # Check if this is a request for the HTML interface
         accept_header = req.headers.get("accept", "").lower()
         user_agent = req.headers.get("user-agent", "").lower()
+        format_param = req.params.get("format", "").lower()
         
-        # More flexible content negotiation for Azure Functions
-        is_browser_request = (
-            "text/html" in accept_header or 
-            "mozilla" in user_agent or 
-            "chrome" in user_agent or 
-            "safari" in user_agent or
-            "edge" in user_agent
-        )
-        
-        # Explicit JSON request check
+        # Explicit JSON request check (prioritize explicit format)
         is_json_request = (
-            "application/json" in accept_header or
-            req.params.get("format") == "json"
+            format_param == "json" or
+            (not format_param and "application/json" in accept_header and "text/html" not in accept_header)
         )
+        
+        # Default to browser request unless explicitly requesting JSON
+        is_browser_request = not is_json_request
+        
+        logging.info("inspect_endpoint: accept_header='%s', format_param='%s', is_browser_request=%s", 
+                    accept_header, format_param, is_browser_request)
         
         if is_browser_request and not is_json_request:
             # Return HTML interface
