@@ -2,11 +2,59 @@ import logging
 import json
 import azure.functions as func
 from datetime import datetime
+import os
 
 app = func.FunctionApp()
 
 # very simple in-memory store: { path: [request_record, ...] }
-REQUEST_LOG = {}
+# Initialize with some debug info to help troubleshoot
+REQUEST_LOG = {
+    "_debug": [{
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "message": "REQUEST_LOG initialized",
+        "app_startup": True
+    }]
+}
+
+@app.route(
+    route="test",
+    methods=["GET", "POST"],
+    auth_level=func.AuthLevel.ANONYMOUS,
+)
+def test_endpoint(req: func.HttpRequest) -> func.HttpResponse:
+    """Simple test endpoint to verify basic functionality"""
+    logging.info("test_endpoint: START %s %s", req.method, req.url)
+    
+    # Force add a test entry to REQUEST_LOG
+    test_entry = {
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "method": req.method,
+        "path": "test",
+        "message": "Test endpoint was called successfully",
+        "query": dict(req.params),
+        "headers": dict(req.headers)
+    }
+    
+    REQUEST_LOG.setdefault("test", []).append(test_entry)
+    
+    logging.info("test_endpoint: Added test entry. REQUEST_LOG keys: %s", list(REQUEST_LOG.keys()))
+    logging.info("test_endpoint: REQUEST_LOG sizes: %s", {k: len(v) for k, v in REQUEST_LOG.items()})
+    
+    return func.HttpResponse(
+        body=json.dumps({
+            "message": "Test endpoint working!",
+            "request_log_keys": list(REQUEST_LOG.keys()),
+            "request_counts": {k: len(v) for k, v in REQUEST_LOG.items()},
+            "test_entry": test_entry
+        }, indent=2),
+        mimetype="application/json",
+        status_code=200,
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST",
+            "Access-Control-Allow-Headers": "Content-Type, Accept"
+        }
+    )
 
 @app.route(
     route="MockApiFunction",
@@ -14,7 +62,14 @@ REQUEST_LOG = {}
     auth_level=func.AuthLevel.ANONYMOUS,
 )
 def main_mock_endpoint(req: func.HttpRequest) -> func.HttpResponse:
-    logging.info("main_mock_endpoint: START %s %s", req.method, req.url)
+    logging.info("=" * 60)
+    logging.info("main_mock_endpoint: FUNCTION CALLED!")
+    logging.info("main_mock_endpoint: Method=%s URL=%s", req.method, req.url)
+    logging.info("main_mock_endpoint: Headers=%s", dict(req.headers))
+    logging.info("main_mock_endpoint: Query=%s", dict(req.params))
+    logging.info("main_mock_endpoint: Route params=%s", req.route_params)
+    logging.info("main_mock_endpoint: Current REQUEST_LOG keys before processing: %s", list(REQUEST_LOG.keys()))
+    logging.info("=" * 60)
     
     try:
         # Use the route as the path for main endpoint
@@ -861,13 +916,25 @@ ${{formatJson(req.body)}}
 def health_check(req: func.HttpRequest) -> func.HttpResponse:
     """Simple health check endpoint to verify function app is working"""
     logging.info("health_check: START")
+    logging.info("health_check: Current REQUEST_LOG: %s", REQUEST_LOG)
     
     health_info = {
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat() + "Z",
         "request_log_keys": list(REQUEST_LOG.keys()),
-        "total_requests": sum(len(v) for v in REQUEST_LOG.values()),
-        "version": "1.0"
+        "request_log_full": REQUEST_LOG,
+        "total_requests": sum(len(v) if isinstance(v, list) else 0 for v in REQUEST_LOG.values()),
+        "version": "1.0",
+        "function_url": str(req.url),
+        "function_method": req.method,
+        "available_routes": [
+            "/api/test",
+            "/api/MockApiFunction", 
+            "/api/mock/{path}",
+            "/api/inspect",
+            "/api/inspect/{path}",
+            "/api/health"
+        ]
     }
     
     return func.HttpResponse(
