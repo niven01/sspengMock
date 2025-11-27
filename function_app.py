@@ -692,6 +692,9 @@ def inspect_endpoint(req: func.HttpRequest) -> func.HttpResponse:
         }}
         
         debugLog(`Initialized for path: '${{path}}'`);
+        debugLog(`Current URL: ${{window.location.href}}`);
+        debugLog(`Path: ${{window.location.pathname}}`);
+        debugLog(`Origin: ${{window.location.origin}}`);
         
         function formatJson(obj) {{
             if (obj === null || obj === undefined) {{
@@ -874,22 +877,24 @@ ${{formatJson(req.body)}}
             debugLog('Starting fetch request...');
             
             // Build URL more robustly for Azure Functions
-            let url = window.location.pathname;
-            if (!url.endsWith('/')) {{
-                url = window.location.href;
-            }}
+            let baseUrl = window.location.origin + window.location.pathname;
             
-            // Add explicit JSON format parameter for Azure Functions
-            const separator = url.includes('?') ? '&' : '?';
-            const fetchUrl = url + separator + 'format=json';
+            // Ensure path ends properly and remove any existing query params
+            baseUrl = baseUrl.split('?')[0];
             
+            // Add explicit JSON format parameter with cache-busting
+            const fetchUrl = baseUrl + '?format=json&_t=' + Date.now();
+            
+            debugLog(`Base URL: ${{baseUrl}}`);
             debugLog(`Fetch URL: ${{fetchUrl}}`);
             
             fetch(fetchUrl, {{
                 headers: {{
                     'Accept': 'application/json',
                     'Content-Type': 'application/json'
-                }}
+                }},
+                mode: 'cors',
+                credentials: 'omit'
             }})
             .then(response => {{
                 debugLog(`Response status: ${{response.status}} ${{response.statusText}}`);
