@@ -162,10 +162,14 @@ def mock_endpoint(req: func.HttpRequest) -> func.HttpResponse:
 )
 def inspect_endpoint(req: func.HttpRequest) -> func.HttpResponse:
     logging.info("inspect_endpoint: START %s %s", req.method, req.url)
+    logging.info("inspect_endpoint: Headers: %s", dict(req.headers))
+    logging.info("inspect_endpoint: Query params: %s", dict(req.params))
     
     try:
         path = req.route_params.get("path", "")
         logging.info("inspect_endpoint: path='%s'", path)
+        logging.info("inspect_endpoint: Current REQUEST_LOG keys: %s", list(REQUEST_LOG.keys()))
+        logging.info("inspect_endpoint: REQUEST_LOG contents: %s", {k: len(v) for k, v in REQUEST_LOG.items()})
         
         # Check if this is a request for the HTML interface
         accept_header = req.headers.get("accept", "").lower()
@@ -409,16 +413,32 @@ def inspect_endpoint(req: func.HttpRequest) -> func.HttpResponse:
                 Loading requests...
             </div>
         </div>
+        
+        <!-- Debug Information Panel -->
+        <div id="debug-panel" style="position: fixed; bottom: 20px; left: 20px; background: rgba(0,0,0,0.8); color: white; padding: 10px; border-radius: 8px; font-family: monospace; font-size: 12px; max-width: 400px; max-height: 200px; overflow-y: auto; z-index: 1000;">
+            <div style="font-weight: bold; margin-bottom: 5px;">🔍 Debug Info</div>
+            <div id="debug-content">Initializing...</div>
+        </div>
     </div>
 
     <script>
         const path = '{path}';
         const container = document.getElementById('requests-container');
+        const debugPanel = document.getElementById('debug-content');
         let expandedRequests = new Set(); // Track which requests are expanded
         let autoRefreshEnabled = true;
         let refreshInterval;
         let requestCounter = 0; // Counter to assign stable IDs to requests
         let lastRequestsHash = ''; // To detect if data actually changed
+        
+        function debugLog(message) {{
+            const timestamp = new Date().toLocaleTimeString();
+            console.log(`[${{timestamp}}] ${{message}}`);
+            debugPanel.innerHTML += `<div>[${{timestamp}}] ${{message}}</div>`;
+            debugPanel.scrollTop = debugPanel.scrollHeight;
+        }}
+        
+        debugLog(`Initialized for path: '${{path}}'`);
         
         function formatJson(obj) {{
             if (obj === null || obj === undefined) {{
@@ -598,6 +618,8 @@ ${{formatJson(req.body)}}
         function fetchData() {{
             if (!autoRefreshEnabled) return;
             
+            debugLog('Starting fetch request...');
+            
             // Build URL more robustly for Azure Functions
             let url = window.location.pathname;
             if (!url.endsWith('/')) {{
@@ -608,6 +630,8 @@ ${{formatJson(req.body)}}
             const separator = url.includes('?') ? '&' : '?';
             const fetchUrl = url + separator + 'format=json';
             
+            debugLog(`Fetch URL: ${{fetchUrl}}`);
+            
             fetch(fetchUrl, {{
                 headers: {{
                     'Accept': 'application/json',
@@ -615,20 +639,28 @@ ${{formatJson(req.body)}}
                 }}
             }})
             .then(response => {{
-                console.log('Fetch response status:', response.status);
-                console.log('Fetch response headers:', Object.fromEntries(response.headers.entries()));
+                debugLog(`Response status: ${{response.status}} ${{response.statusText}}`);
+                debugLog(`Response headers: ${{JSON.stringify(Object.fromEntries(response.headers.entries()))}}`);
                 if (!response.ok) {{
                     throw new Error(`HTTP ${{response.status}}: ${{response.statusText}}`);
                 }}
-                return response.json();
+                return response.text(); // Get as text first for debugging
             }})
-            .then(data => {{
-                console.log('Fetched data:', data);
-                renderRequests(data);
+            .then(text => {{
+                debugLog(`Raw response: ${{text.substring(0, 200)}}...`);
+                try {{
+                    const data = JSON.parse(text);
+                    debugLog(`Parsed JSON successfully. Requests count: ${{(data.requests || []).length}}`);
+                    renderRequests(data);
+                }} catch (e) {{
+                    debugLog(`JSON parse error: ${{e.message}}`);
+                    container.innerHTML = `<div class="no-requests">Error parsing JSON response. Check debug panel.</div>`;
+                }}
             }})
             .catch(error => {{
+                debugLog(`Fetch error: ${{error.message}}`);
                 console.error('Error fetching data:', error);
-                container.innerHTML = '<div class="no-requests">Error loading requests. Check console for details.</div>';
+                container.innerHTML = `<div class="no-requests">Error loading requests: ${{error.message}}<br>Check debug panel for details.</div>`;
             }});
         }}
         
@@ -684,3 +716,31 @@ ${{formatJson(req.body)}}
             mimetype="application/json",
             status_code=500,
         )
+
+@app.route(
+    route="health",
+    methods=["GET"],
+    auth_level=func.AuthLevel.ANONYMOUS,
+)
+def health_check(req: func.HttpRequest) -> func.HttpResponse:
+    """Simple health check endpoint to verify function app is working"""
+    logging.info("health_check: START")
+    
+    health_info = {
+        "status": "healthy",
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "request_log_keys": list(REQUEST_LOG.keys()),
+        "total_requests": sum(len(v) for v in REQUEST_LOG.values()),
+        "version": "1.0"
+    }
+    
+    return func.HttpResponse(
+        body=json.dumps(health_info, indent=2),
+        mimetype="application/json",
+        status_code=200,
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET",
+            "Access-Control-Allow-Headers": "Content-Type, Accept"
+        }
+    )
