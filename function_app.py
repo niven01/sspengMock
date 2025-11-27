@@ -65,6 +65,11 @@ def main_mock_endpoint(req: func.HttpRequest) -> func.HttpResponse:
             body=json.dumps(response_body),
             mimetype="application/json",
             status_code=200,
+            headers={
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+                "Access-Control-Allow-Headers": "Content-Type, Accept"
+            }
         )
 
     except Exception as e:
@@ -134,6 +139,11 @@ def mock_endpoint(req: func.HttpRequest) -> func.HttpResponse:
             body=json.dumps(response_body),
             mimetype="application/json",
             status_code=200,
+            headers={
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+                "Access-Control-Allow-Headers": "Content-Type, Accept"
+            }
         )
 
     except Exception as e:
@@ -158,8 +168,25 @@ def inspect_endpoint(req: func.HttpRequest) -> func.HttpResponse:
         logging.info("inspect_endpoint: path='%s'", path)
         
         # Check if this is a request for the HTML interface
-        accept_header = req.headers.get("accept", "")
-        if "text/html" in accept_header and "application/json" not in accept_header:
+        accept_header = req.headers.get("accept", "").lower()
+        user_agent = req.headers.get("user-agent", "").lower()
+        
+        # More flexible content negotiation for Azure Functions
+        is_browser_request = (
+            "text/html" in accept_header or 
+            "mozilla" in user_agent or 
+            "chrome" in user_agent or 
+            "safari" in user_agent or
+            "edge" in user_agent
+        )
+        
+        # Explicit JSON request check
+        is_json_request = (
+            "application/json" in accept_header or
+            req.params.get("format") == "json"
+        )
+        
+        if is_browser_request and not is_json_request:
             # Return HTML interface
             html_content = f"""
 <!DOCTYPE html>
@@ -571,14 +598,32 @@ ${{formatJson(req.body)}}
         function fetchData() {{
             if (!autoRefreshEnabled) return;
             
-            const url = window.location.pathname;
-            fetch(url, {{
+            // Build URL more robustly for Azure Functions
+            let url = window.location.pathname;
+            if (!url.endsWith('/')) {{
+                url = window.location.href;
+            }}
+            
+            // Add explicit JSON format parameter for Azure Functions
+            const separator = url.includes('?') ? '&' : '?';
+            const fetchUrl = url + separator + 'format=json';
+            
+            fetch(fetchUrl, {{
                 headers: {{
-                    'Accept': 'application/json'
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
                 }}
             }})
-            .then(response => response.json())
+            .then(response => {{
+                console.log('Fetch response status:', response.status);
+                console.log('Fetch response headers:', Object.fromEntries(response.headers.entries()));
+                if (!response.ok) {{
+                    throw new Error(`HTTP ${{response.status}}: ${{response.statusText}}`);
+                }}
+                return response.json();
+            }})
             .then(data => {{
+                console.log('Fetched data:', data);
                 renderRequests(data);
             }})
             .catch(error => {{
@@ -618,10 +663,18 @@ ${{formatJson(req.body)}}
             path,
         )
 
+        response_body = json.dumps({"path": path, "requests": data})
+        
         return func.HttpResponse(
-            body=json.dumps({"path": path, "requests": data}),
+            body=response_body,
             mimetype="application/json",
             status_code=200,
+            headers={
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+                "Access-Control-Allow-Headers": "Content-Type, Accept",
+                "Cache-Control": "no-cache"
+            }
         )
 
     except Exception as e:
