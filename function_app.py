@@ -176,7 +176,9 @@ def mock_endpoint(req: func.HttpRequest) -> func.HttpResponse:
     
     try:
         path = req.route_params.get("path", "")
-        logging.info("mock_endpoint: path='%s'", path)
+        # Normalize path by removing trailing slashes for consistency
+        path = path.rstrip('/')
+        logging.info("mock_endpoint: normalized path='%s'", path)
         
         record = {
             "timestamp": datetime.utcnow().isoformat() + "Z",
@@ -386,7 +388,9 @@ def inspect_endpoint(req: func.HttpRequest) -> func.HttpResponse:
     
     try:
         path = req.route_params.get("path", "")
-        logging.info("inspect_endpoint: path='%s'", path)
+        # Normalize path by removing trailing slashes
+        path = path.rstrip('/')
+        logging.info("inspect_endpoint: normalized path='%s'", path)
         logging.info("inspect_endpoint: Current REQUEST_LOG keys: %s", list(REQUEST_LOG.keys()))
         logging.info("inspect_endpoint: REQUEST_LOG contents: %s", {k: len(v) for k, v in REQUEST_LOG.items()})
         
