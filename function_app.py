@@ -47,6 +47,8 @@ def main_mock_endpoint(req: func.HttpRequest) -> func.HttpResponse:
             path,
             len(REQUEST_LOG[path]),
         )
+        logging.info("main_mock_endpoint: REQUEST_LOG now contains keys: %s", list(REQUEST_LOG.keys()))
+        logging.info("main_mock_endpoint: REQUEST_LOG sizes: %s", {k: len(v) for k, v in REQUEST_LOG.items()})
 
         response_body = {
             "message": "Mock endpoint captured your request.",
@@ -120,6 +122,8 @@ def mock_endpoint(req: func.HttpRequest) -> func.HttpResponse:
             path,
             len(REQUEST_LOG[path]),
         )
+        logging.info("mock_endpoint: REQUEST_LOG now contains keys: %s", list(REQUEST_LOG.keys()))
+        logging.info("mock_endpoint: REQUEST_LOG sizes: %s", {k: len(v) for k, v in REQUEST_LOG.items()})
         logging.debug("mock_endpoint: record=%s", json.dumps(record))
 
         response_body = {
@@ -151,6 +155,138 @@ def mock_endpoint(req: func.HttpRequest) -> func.HttpResponse:
         logging.exception("mock_endpoint: FAILED with unhandled exception: %s", e)
         return func.HttpResponse(
             body=json.dumps({"error": "internal server error"}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+@app.route(
+    route="inspect",
+    methods=["GET"],
+    auth_level=func.AuthLevel.ANONYMOUS,
+)
+def inspect_all_endpoint(req: func.HttpRequest) -> func.HttpResponse:
+    """Inspect endpoint without path parameter to show all captured requests"""
+    logging.info("inspect_all_endpoint: START %s %s", req.method, req.url)
+    logging.info("inspect_all_endpoint: Current REQUEST_LOG: %s", {k: len(v) for k, v in REQUEST_LOG.items()})
+    
+    try:
+        # Check if this is a request for the HTML interface
+        accept_header = req.headers.get("accept", "").lower()
+        user_agent = req.headers.get("user-agent", "").lower()
+        
+        # More flexible content negotiation for Azure Functions
+        is_browser_request = (
+            "text/html" in accept_header or 
+            "mozilla" in user_agent or 
+            "chrome" in user_agent or 
+            "safari" in user_agent or
+            "edge" in user_agent
+        )
+        
+        # Explicit JSON request check
+        is_json_request = (
+            "application/json" in accept_header or
+            req.params.get("format") == "json"
+        )
+        
+        if is_browser_request and not is_json_request:
+            # Return HTML interface showing all paths
+            all_paths = list(REQUEST_LOG.keys())
+            paths_html = ""
+            if all_paths:
+                paths_html = "<ul>" + "".join([f'<li><a href="/api/inspect/{path}" style="color: white; text-decoration: underline;">{path} ({len(REQUEST_LOG[path])} requests)</a></li>' for path in all_paths]) + "</ul>"
+            else:
+                paths_html = "<p>No requests captured yet.</p>"
+            
+            html_content = f"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Inspector - All Paths</title>
+    <style>
+        body {{
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: white;
+        }}
+        .container {{
+            max-width: 800px;
+            margin: 0 auto;
+        }}
+        .header {{
+            background: linear-gradient(135deg, #8B5A96, #6A4C93);
+            color: white;
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            box-shadow: 0 8px 32px rgba(139, 90, 150, 0.3);
+        }}
+        ul {{
+            background: rgba(248, 249, 250, 0.1);
+            padding: 20px;
+            border-radius: 8px;
+            list-style: none;
+        }}
+        li {{
+            padding: 10px;
+            margin: 5px 0;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 5px;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🕵️ API Spy Dashboard - All Paths</h1>
+            <p>Overview of all captured request paths</p>
+        </div>
+        
+        <div>
+            <h2>Captured Request Paths:</h2>
+            {paths_html}
+        </div>
+        
+        <div style="margin-top: 30px; background: rgba(0,0,0,0.3); padding: 15px; border-radius: 8px;">
+            <strong>Debug Info:</strong><br>
+            Total paths: {len(all_paths)}<br>
+            All REQUEST_LOG keys: {list(REQUEST_LOG.keys())}<br>
+            Total requests: {sum(len(v) for v in REQUEST_LOG.values())}
+        </div>
+    </div>
+</body>
+</html>
+"""
+            return func.HttpResponse(
+                body=html_content,
+                mimetype="text/html",
+                status_code=200,
+            )
+        
+        # Return JSON data for API requests - show all paths
+        all_data = {{path: {{"path": path, "requests": requests}} for path, requests in REQUEST_LOG.items()}}
+        
+        return func.HttpResponse(
+            body=json.dumps({{"all_paths": all_data, "total_requests": sum(len(v) for v in REQUEST_LOG.values())}}, indent=2),
+            mimetype="application/json",
+            status_code=200,
+            headers={{
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+                "Access-Control-Allow-Headers": "Content-Type, Accept",
+                "Cache-Control": "no-cache"
+            }}
+        )
+
+    except Exception as e:
+        logging.exception("inspect_all_endpoint: FAILED with unhandled exception: %s", e)
+        return func.HttpResponse(
+            body=json.dumps({{"error": "internal server error"}}),
             mimetype="application/json",
             status_code=500,
         )
