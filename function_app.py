@@ -12,29 +12,49 @@ app = func.FunctionApp()
 INSTANCE_ID = str(uuid.uuid4())[:8]
 INSTANCE_START_TIME = datetime.utcnow().isoformat() + "Z"
 
-# Simple file-based persistence for Azure Functions
-TEMP_FILE_PATH = os.path.join(tempfile.gettempdir(), "mock_api_requests.json")
+# Use a persistent storage solution instead of temp files
+# For now, keep the temp file as fallback but make it more robust
+TEMP_FILE_PATH = os.path.join(tempfile.gettempdir(), f"mock_api_requests_{os.environ.get('WEBSITE_INSTANCE_ID', 'local')}.json")
 
 def load_request_log():
-    """Load REQUEST_LOG from file if it exists"""
+    """Load REQUEST_LOG from file if it exists, with better error handling"""
+    logging.info(f"Attempting to load REQUEST_LOG from {TEMP_FILE_PATH}")
+    logging.info(f"Instance ID: {INSTANCE_ID}, Website Instance: {os.environ.get('WEBSITE_INSTANCE_ID', 'local')}")
+    
     try:
         if os.path.exists(TEMP_FILE_PATH):
             with open(TEMP_FILE_PATH, 'r') as f:
                 data = json.load(f)
-                logging.info(f"Loaded REQUEST_LOG from {TEMP_FILE_PATH} with {len(data)} keys")
+                logging.info(f"✅ Successfully loaded REQUEST_LOG from {TEMP_FILE_PATH} with {len(data)} keys")
+                logging.info(f"Loaded keys: {list(data.keys())}")
                 return data
+        else:
+            logging.info(f"❌ File {TEMP_FILE_PATH} does not exist")
     except Exception as e:
-        logging.warning(f"Failed to load REQUEST_LOG from file: {e}")
+        logging.warning(f"❌ Failed to load REQUEST_LOG from file: {e}")
+    
+    logging.info(f"🆕 Starting with empty REQUEST_LOG")
     return {}
 
 def save_request_log():
-    """Save REQUEST_LOG to file"""
+    """Save REQUEST_LOG to file with better error handling"""
     try:
+        # Create directory if it doesn't exist
+        os.makedirs(os.path.dirname(TEMP_FILE_PATH), exist_ok=True)
+        
         with open(TEMP_FILE_PATH, 'w') as f:
-            json.dump(REQUEST_LOG, f, default=str)
-        logging.info(f"Saved REQUEST_LOG to {TEMP_FILE_PATH}")
+            json.dump(REQUEST_LOG, f, default=str, indent=2)
+        
+        # Verify the file was written
+        if os.path.exists(TEMP_FILE_PATH):
+            file_size = os.path.getsize(TEMP_FILE_PATH)
+            logging.info(f"✅ Successfully saved REQUEST_LOG to {TEMP_FILE_PATH} ({file_size} bytes)")
+            logging.info(f"💾 Saved {len(REQUEST_LOG)} keys: {list(REQUEST_LOG.keys())}")
+        else:
+            logging.error(f"❌ File was not created at {TEMP_FILE_PATH}")
     except Exception as e:
-        logging.warning(f"Failed to save REQUEST_LOG to file: {e}")
+        logging.error(f"❌ Failed to save REQUEST_LOG to file: {e}")
+        logging.exception("Full save error traceback:")
 
 # Load existing data and add debug info
 REQUEST_LOG = load_request_log()
@@ -989,19 +1009,62 @@ ${{formatJson(req.body)}}
     auth_level=func.AuthLevel.ANONYMOUS,
 )
 def health_check(req: func.HttpRequest) -> func.HttpResponse:
-    """Simple health check endpoint to verify function app is working"""
+    """Health check with detailed Azure Functions environment info"""
     logging.info("health_check: START")
-    logging.info("health_check: Current REQUEST_LOG: %s", REQUEST_LOG)
+    
+    # Check file system status
+    file_exists = os.path.exists(TEMP_FILE_PATH)
+    file_size = 0
+    file_permissions = "N/A"
+    temp_dir_writable = False
+    
+    try:
+        if file_exists:
+            file_size = os.path.getsize(TEMP_FILE_PATH)
+            file_permissions = oct(os.stat(TEMP_FILE_PATH).st_mode)[-3:]
+    except Exception as e:
+        logging.warning(f"Error checking file stats: {e}")
+    
+    try:
+        # Test if we can write to temp directory
+        test_file = os.path.join(tempfile.gettempdir(), f"test_{INSTANCE_ID}.tmp")
+        with open(test_file, 'w') as f:
+            f.write("test")
+        os.remove(test_file)
+        temp_dir_writable = True
+    except Exception as e:
+        logging.warning(f"Temp directory not writable: {e}")
     
     health_info = {
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat() + "Z",
         "instance_id": INSTANCE_ID,
         "instance_start_time": INSTANCE_START_TIME,
+        
+        # Azure Functions Environment
+        "azure_environment": {
+            "website_instance_id": os.environ.get('WEBSITE_INSTANCE_ID', 'Not set'),
+            "website_site_name": os.environ.get('WEBSITE_SITE_NAME', 'Not set'),
+            "website_resource_group": os.environ.get('WEBSITE_RESOURCE_GROUP', 'Not set'),
+            "functions_worker_runtime": os.environ.get('FUNCTIONS_WORKER_RUNTIME', 'Not set'),
+        },
+        
+        # File System Status
+        "file_system": {
+            "temp_file_path": TEMP_FILE_PATH,
+            "file_exists": file_exists,
+            "file_size_bytes": file_size,
+            "file_permissions": file_permissions,
+            "temp_dir": tempfile.gettempdir(),
+            "temp_dir_writable": temp_dir_writable,
+            "cwd": os.getcwd(),
+        },
+        
+        # REQUEST_LOG Status
         "request_log_keys": list(REQUEST_LOG.keys()),
         "request_log_full": REQUEST_LOG,
         "total_requests": sum(len(v) if isinstance(v, list) else 0 for v in REQUEST_LOG.values()),
-        "version": "1.0",
+        "version": "1.1",
         "function_url": str(req.url),
         "function_method": req.method,
         "available_routes": [
