@@ -14,39 +14,65 @@ REQUEST_LOG = {}
     auth_level=func.AuthLevel.ANONYMOUS,
 )
 def mock_endpoint(req: func.HttpRequest) -> func.HttpResponse:
-    path = req.route_params.get("path", "")
-    record = {
-        "timestamp": datetime.utcnow().isoformat() + "Z",
-        "method": req.method,
-        "path": path,
-        "query": dict(req.params),
-        "headers": dict(req.headers),
-        "body": None,
-    }
+    logging.info("mock_endpoint: received %s %s", req.method, req.url)
 
     try:
+        path = req.route_params.get("path", "")
+        record = {
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "method": req.method,
+            "path": path,
+            "query": dict(req.params),
+            "headers": dict(req.headers),
+            "body": None,
+        }
+
         # try JSON first, then raw text
-        record["body"] = req.get_json()
-    except ValueError:
         try:
-            record["body"] = req.get_body().decode("utf-8")
-        except Exception:
-            record["body"] = None
+            record["body"] = req.get_json()
+            logging.info("mock_endpoint: parsed JSON body")
+        except ValueError:
+            try:
+                record["body"] = req.get_body().decode("utf-8")
+                logging.info("mock_endpoint: parsed text body")
+            except Exception:
+                logging.warning("mock_endpoint: could not read body")
+                record["body"] = None
 
-    REQUEST_LOG.setdefault(path, []).append(record)
-    logging.info("Captured request for path %s", path)
+        REQUEST_LOG.setdefault(path, []).append(record)
+        logging.info(
+            "mock_endpoint: captured request for path '%s' (total=%d)",
+            path,
+            len(REQUEST_LOG[path]),
+        )
+        logging.debug("mock_endpoint: record=%s", json.dumps(record))
 
-    response_body = {
-        "message": "Mock endpoint captured your request.",
-        "path": path,
-        "request_id": len(REQUEST_LOG[path]) - 1,
-    }
+        response_body = {
+            "message": "Mock endpoint captured your request.",
+            "path": path,
+            "request_id": len(REQUEST_LOG[path]) - 1,
+        }
 
-    return func.HttpResponse(
-        body=json.dumps(response_body),
-        mimetype="application/json",
-        status_code=200,
-    )
+        logging.info(
+            "mock_endpoint: returning 200 for path '%s', request_id=%d",
+            path,
+            response_body["request_id"],
+        )
+
+        return func.HttpResponse(
+            body=json.dumps(response_body),
+            mimetype="application/json",
+            status_code=200,
+        )
+
+    except Exception as e:
+        # log full stack trace and return a safe 500
+        logging.exception("mock_endpoint: unhandled exception: %s", e)
+        return func.HttpResponse(
+            body=json.dumps({"error": "internal server error"}),
+            mimetype="application/json",
+            status_code=500,
+        )
 
 @app.route(
     route="inspect/{*path}",
@@ -54,10 +80,27 @@ def mock_endpoint(req: func.HttpRequest) -> func.HttpResponse:
     auth_level=func.AuthLevel.ANONYMOUS,
 )
 def inspect_endpoint(req: func.HttpRequest) -> func.HttpResponse:
-    path = req.route_params.get("path", "")
-    data = REQUEST_LOG.get(path, [])
-    return func.HttpResponse(
-        body=json.dumps({"path": path, "requests": data}),
-        mimetype="application/json",
-        status_code=200,
-    )
+    logging.info("inspect_endpoint: received %s %s", req.method, req.url)
+
+    try:
+        path = req.route_params.get("path", "")
+        data = REQUEST_LOG.get(path, [])
+        logging.info(
+            "inspect_endpoint: returning %d records for path '%s'",
+            len(data),
+            path,
+        )
+
+        return func.HttpResponse(
+            body=json.dumps({"path": path, "requests": data}),
+            mimetype="application/json",
+            status_code=200,
+        )
+
+    except Exception as e:
+        logging.exception("inspect_endpoint: unhandled exception: %s", e)
+        return func.HttpResponse(
+            body=json.dumps({"error": "internal server error"}),
+            mimetype="application/json",
+            status_code=500,
+        )
