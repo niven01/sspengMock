@@ -1,11 +1,11 @@
 import json
-import azure.functions as func
 import logging
+import azure.functions as func
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
     logging.info("Mock API function processed a request.")
 
-    # Safely parse JSON body
+    # Safely parse JSON body; returns None if no JSON
     body = req.get_json(silent=True) or {}
 
     response = {
@@ -17,7 +17,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     }
 
     return func.HttpResponse(
-        json.dumps(response),
+        body=json.dumps(response),
         status_code=200,
         mimetype="application/json"
     )
