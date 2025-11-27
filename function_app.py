@@ -129,6 +129,9 @@ def main_mock_endpoint(req: func.HttpRequest) -> func.HttpResponse:
         )
         logging.info("main_mock_endpoint: REQUEST_LOG now contains keys: %s", list(REQUEST_LOG.keys()))
         logging.info("main_mock_endpoint: REQUEST_LOG sizes: %s", {k: len(v) for k, v in REQUEST_LOG.items()})
+        
+        # Force log the actual record that was stored
+        logging.info("main_mock_endpoint: STORED RECORD: %s", json.dumps(record, default=str))
 
         response_body = {
             "message": "Mock endpoint captured your request.",
@@ -908,27 +911,13 @@ ${{formatJson(req.body)}}
         
         logging.info("inspect_endpoint: Raw data for path '%s': %s", path, data)
         
-        # Filter out non-request data (like debug entries) but be more lenient
-        if isinstance(data, list):
-            # Filter out debug/metadata entries that might not have the expected structure
-            filtered_data = []
-            for item in data:
-                if isinstance(item, dict):
-                    # More flexible filtering - just check if it looks like a request
-                    if ('timestamp' in item and ('method' in item or 'message' in item)):
-                        filtered_data.append(item)
-                        logging.info("inspect_endpoint: Including item: %s", item)
-                    else:
-                        logging.info("inspect_endpoint: Skipping item (missing required fields): %s", item)
-                else:
-                    logging.info("inspect_endpoint: Skipping non-dict item: %s", item)
-            data = filtered_data
-        else:
+        # Temporarily remove filtering to see all data
+        if not isinstance(data, list):
             logging.info("inspect_endpoint: Data is not a list, using empty list")
             data = []
             
         logging.info(
-            "inspect_endpoint: returning %d records for path '%s' after filtering",
+            "inspect_endpoint: returning %d records for path '%s'",
             len(data),
             path,
         )
