@@ -57,6 +57,31 @@ def test_endpoint(req: func.HttpRequest) -> func.HttpResponse:
     )
 
 @app.route(
+    route="debug",
+    methods=["GET"],
+    auth_level=func.AuthLevel.ANONYMOUS,
+)
+def debug_endpoint(req: func.HttpRequest) -> func.HttpResponse:
+    """Debug endpoint to show raw REQUEST_LOG data"""
+    logging.info("debug_endpoint: START")
+    
+    return func.HttpResponse(
+        body=json.dumps({
+            "raw_request_log": REQUEST_LOG,
+            "keys": list(REQUEST_LOG.keys()),
+            "data_types": {k: type(v).__name__ for k, v in REQUEST_LOG.items()},
+            "lengths": {k: len(v) if isinstance(v, (list, dict, str)) else "N/A" for k, v in REQUEST_LOG.items()}
+        }, indent=2, default=str),
+        mimetype="application/json",
+        status_code=200,
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET",
+            "Access-Control-Allow-Headers": "Content-Type, Accept"
+        }
+    )
+
+@app.route(
     route="MockApiFunction",
     methods=["GET", "POST", "PUT", "DELETE"],
     auth_level=func.AuthLevel.ANONYMOUS,
@@ -881,19 +906,29 @@ ${{formatJson(req.body)}}
         # Return JSON data for API requests
         data = REQUEST_LOG.get(path, [])
         
-        # Filter out non-request data (like debug entries)
+        logging.info("inspect_endpoint: Raw data for path '%s': %s", path, data)
+        
+        # Filter out non-request data (like debug entries) but be more lenient
         if isinstance(data, list):
             # Filter out debug/metadata entries that might not have the expected structure
             filtered_data = []
             for item in data:
-                if isinstance(item, dict) and 'timestamp' in item and 'method' in item:
-                    filtered_data.append(item)
+                if isinstance(item, dict):
+                    # More flexible filtering - just check if it looks like a request
+                    if ('timestamp' in item and ('method' in item or 'message' in item)):
+                        filtered_data.append(item)
+                        logging.info("inspect_endpoint: Including item: %s", item)
+                    else:
+                        logging.info("inspect_endpoint: Skipping item (missing required fields): %s", item)
+                else:
+                    logging.info("inspect_endpoint: Skipping non-dict item: %s", item)
             data = filtered_data
         else:
+            logging.info("inspect_endpoint: Data is not a list, using empty list")
             data = []
             
         logging.info(
-            "inspect_endpoint: returning %d records for path '%s'",
+            "inspect_endpoint: returning %d records for path '%s' after filtering",
             len(data),
             path,
         )
