@@ -3,18 +3,47 @@ import json
 import azure.functions as func
 from datetime import datetime
 import os
+import uuid
+import tempfile
 
 app = func.FunctionApp()
 
-# very simple in-memory store: { path: [request_record, ...] }
-# Initialize with some debug info to help troubleshoot
-REQUEST_LOG = {
-    "_debug": [{
-        "timestamp": datetime.utcnow().isoformat() + "Z",
-        "message": "REQUEST_LOG initialized",
-        "app_startup": True
-    }]
-}
+# Generate a unique instance ID to track function app instances
+INSTANCE_ID = str(uuid.uuid4())[:8]
+INSTANCE_START_TIME = datetime.utcnow().isoformat() + "Z"
+
+# Simple file-based persistence for Azure Functions
+TEMP_FILE_PATH = os.path.join(tempfile.gettempdir(), "mock_api_requests.json")
+
+def load_request_log():
+    """Load REQUEST_LOG from file if it exists"""
+    try:
+        if os.path.exists(TEMP_FILE_PATH):
+            with open(TEMP_FILE_PATH, 'r') as f:
+                data = json.load(f)
+                logging.info(f"Loaded REQUEST_LOG from {TEMP_FILE_PATH} with {len(data)} keys")
+                return data
+    except Exception as e:
+        logging.warning(f"Failed to load REQUEST_LOG from file: {e}")
+    return {}
+
+def save_request_log():
+    """Save REQUEST_LOG to file"""
+    try:
+        with open(TEMP_FILE_PATH, 'w') as f:
+            json.dump(REQUEST_LOG, f, default=str)
+        logging.info(f"Saved REQUEST_LOG to {TEMP_FILE_PATH}")
+    except Exception as e:
+        logging.warning(f"Failed to save REQUEST_LOG to file: {e}")
+
+# Load existing data and add debug info
+REQUEST_LOG = load_request_log()
+REQUEST_LOG.setdefault("_debug", []).append({
+    "timestamp": INSTANCE_START_TIME,
+    "message": "Instance started",
+    "instance_id": INSTANCE_ID,
+    "temp_file_path": TEMP_FILE_PATH
+})
 
 @app.route(
     route="test",
@@ -107,6 +136,8 @@ def main_mock_endpoint(req: func.HttpRequest) -> func.HttpResponse:
             "query": dict(req.params),
             "headers": dict(req.headers),
             "body": None,
+            "instance_id": INSTANCE_ID,
+            "instance_start": INSTANCE_START_TIME
         }
 
         # try JSON first, then raw text
@@ -122,6 +153,7 @@ def main_mock_endpoint(req: func.HttpRequest) -> func.HttpResponse:
                 record["body"] = None
 
         REQUEST_LOG.setdefault(path, []).append(record)
+        save_request_log()  # Persist to file
         logging.info(
             "main_mock_endpoint: stored request for '%s' (total=%d)",
             path,
@@ -961,6 +993,8 @@ def health_check(req: func.HttpRequest) -> func.HttpResponse:
     health_info = {
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat() + "Z",
+        "instance_id": INSTANCE_ID,
+        "instance_start_time": INSTANCE_START_TIME,
         "request_log_keys": list(REQUEST_LOG.keys()),
         "request_log_full": REQUEST_LOG,
         "total_requests": sum(len(v) if isinstance(v, list) else 0 for v in REQUEST_LOG.values()),
