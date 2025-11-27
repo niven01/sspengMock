@@ -9,6 +9,73 @@ app = func.FunctionApp()
 REQUEST_LOG = {}
 
 @app.route(
+    route="MockApiFunction",
+    methods=["GET", "POST", "PUT", "DELETE"],
+    auth_level=func.AuthLevel.ANONYMOUS,
+)
+def main_mock_endpoint(req: func.HttpRequest) -> func.HttpResponse:
+    logging.info("main_mock_endpoint: START %s %s", req.method, req.url)
+    
+    try:
+        # Use the route as the path for main endpoint
+        path = "MockApiFunction"
+        
+        record = {
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "method": req.method,
+            "path": path,
+            "query": dict(req.params),
+            "headers": dict(req.headers),
+            "body": None,
+        }
+
+        # try JSON first, then raw text
+        try:
+            record["body"] = req.get_json()
+            logging.info("main_mock_endpoint: parsed JSON body")
+        except ValueError:
+            try:
+                record["body"] = req.get_body().decode("utf-8")
+                logging.info("main_mock_endpoint: parsed text body")
+            except Exception:
+                logging.warning("main_mock_endpoint: could not read body")
+                record["body"] = None
+
+        REQUEST_LOG.setdefault(path, []).append(record)
+        logging.info(
+            "main_mock_endpoint: stored request for '%s' (total=%d)",
+            path,
+            len(REQUEST_LOG[path]),
+        )
+
+        response_body = {
+            "message": "Mock endpoint captured your request.",
+            "path": path,
+            "request_id": len(REQUEST_LOG[path]) - 1,
+        }
+
+        logging.info(
+            "main_mock_endpoint: returning 200 for path '%s', request_id=%d",
+            path,
+            response_body["request_id"],
+        )
+
+        return func.HttpResponse(
+            body=json.dumps(response_body),
+            mimetype="application/json",
+            status_code=200,
+        )
+
+    except Exception as e:
+        # log full stack trace and return a safe 500
+        logging.exception("main_mock_endpoint: FAILED with unhandled exception: %s", e)
+        return func.HttpResponse(
+            body=json.dumps({"error": "internal server error"}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+@app.route(
     route="mock/{*path}",
     methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
     auth_level=func.AuthLevel.ANONYMOUS,
