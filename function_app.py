@@ -4,7 +4,12 @@ import azure.functions as func
 from datetime import datetime
 import os
 import uuid
-import tempfile
+import requests
+from datetime import timezone
+import urllib.parse
+import hashlib
+import hmac
+import base64
 
 app = func.FunctionApp()
 
@@ -12,59 +17,149 @@ app = func.FunctionApp()
 INSTANCE_ID = str(uuid.uuid4())[:8]
 INSTANCE_START_TIME = datetime.utcnow().isoformat() + "Z"
 
-# Use a persistent storage solution instead of temp files
-# For now, keep the temp file as fallback but make it more robust
-TEMP_FILE_PATH = os.path.join(tempfile.gettempdir(), f"mock_api_requests_{os.environ.get('WEBSITE_INSTANCE_ID', 'local')}.json")
+# Azure Storage configuration using REST API
+STORAGE_CONNECTION_STRING = os.environ.get('AzureWebJobsStorage')
+CONTAINER_NAME = 'mock-api-data'
+BLOB_NAME = 'request-log.json'
+
+# Parse storage connection string
+def parse_connection_string(conn_str):
+    """Parse Azure Storage connection string"""
+    if not conn_str:
+        return None
+    
+    parts = {}
+    for part in conn_str.split(';'):
+        if '=' in part:
+            key, value = part.split('=', 1)
+            parts[key] = value
+    
+    return {
+        'account_name': parts.get('AccountName'),
+        'account_key': parts.get('AccountKey'),
+        'endpoint_suffix': parts.get('EndpointSuffix', 'core.windows.net')
+    }
+
+# Parse connection and check availability
+storage_config = parse_connection_string(STORAGE_CONNECTION_STRING)
+AZURE_STORAGE_AVAILABLE = storage_config is not None and all([
+    storage_config.get('account_name'),
+    storage_config.get('account_key')
+])
+
+def create_auth_header(account_name, account_key, method, url_path, headers):
+    """Create Azure Storage authentication header"""
+    string_to_sign = f"{method}\n\n\n{headers.get('Content-Length', '')}\n\n{headers.get('Content-Type', '')}\n\n\n\n\n\n\n"
+    string_to_sign += f"x-ms-date:{headers['x-ms-date']}\n"
+    string_to_sign += f"x-ms-version:{headers['x-ms-version']}\n"
+    string_to_sign += f"/{account_name}{url_path}"
+    
+    key_bytes = base64.b64decode(account_key)
+    signature = base64.b64encode(hmac.new(key_bytes, string_to_sign.encode('utf-8'), hashlib.sha256).digest()).decode('utf-8')
+    return f"SharedKey {account_name}:{signature}"
+
+def make_storage_request(method, url_path, data=None):
+    """Make authenticated request to Azure Storage REST API"""
+    if not AZURE_STORAGE_AVAILABLE:
+        return None
+        
+    account_name = storage_config['account_name']
+    account_key = storage_config['account_key']
+    endpoint_suffix = storage_config['endpoint_suffix']
+    
+    url = f"https://{account_name}.blob.{endpoint_suffix}{url_path}"
+    
+    headers = {
+        'x-ms-date': datetime.now(timezone.utc).strftime('%a, %d %b %Y %H:%M:%S GMT'),
+        'x-ms-version': '2020-10-02'
+    }
+    
+    if data:
+        headers['Content-Type'] = 'application/octet-stream'
+        headers['Content-Length'] = str(len(data))
+    
+    headers['Authorization'] = create_auth_header(account_name, account_key, method, url_path, headers)
+    
+    try:
+        response = requests.request(method, url, data=data, headers=headers)
+        return response
+    except Exception as e:
+        logging.error(f"Storage request failed: {e}")
+        return None
 
 def load_request_log():
-    """Load REQUEST_LOG from file if it exists, with better error handling"""
-    logging.info(f"Attempting to load REQUEST_LOG from {TEMP_FILE_PATH}")
-    logging.info(f"Instance ID: {INSTANCE_ID}, Website Instance: {os.environ.get('WEBSITE_INSTANCE_ID', 'local')}")
+    """Load REQUEST_LOG from Azure Blob Storage using REST API"""
+    logging.info("📥 Starting load_request_log_from_storage (REST API)...")
     
     try:
-        if os.path.exists(TEMP_FILE_PATH):
-            with open(TEMP_FILE_PATH, 'r') as f:
-                data = json.load(f)
-                logging.info(f"✅ Successfully loaded REQUEST_LOG from {TEMP_FILE_PATH} with {len(data)} keys")
-                logging.info(f"Loaded keys: {list(data.keys())}")
-                return data
+        if not AZURE_STORAGE_AVAILABLE:
+            logging.warning("❌ Azure Storage not available, returning empty dict")
+            return {}
+        
+        # Download blob
+        url_path = f"/{CONTAINER_NAME}/{BLOB_NAME}"
+        logging.info(f"📤 Downloading blob: {url_path}")
+        
+        response = make_storage_request('GET', url_path)
+        
+        if response is None:
+            logging.error("❌ Storage request failed")
+            return {}
+            
+        if response.status_code == 200:
+            data = json.loads(response.text)
+            logging.info(f"✅ Loaded REQUEST_LOG from Azure Storage with {len(data)} keys")
+            return data
+        elif response.status_code == 404:
+            logging.info("🆕 No existing blob found, starting fresh")
+            return {}
         else:
-            logging.info(f"❌ File {TEMP_FILE_PATH} does not exist")
+            logging.warning(f"⚠️ Unexpected response: {response.status_code} - {response.text}")
+            return {}
+            
     except Exception as e:
-        logging.warning(f"❌ Failed to load REQUEST_LOG from file: {e}")
-    
-    logging.info(f"🆕 Starting with empty REQUEST_LOG")
-    return {}
+        logging.error(f"❌ Error loading from Azure Storage: {e}")
+        return {}
 
 def save_request_log():
-    """Save REQUEST_LOG to file with better error handling"""
+    """Save REQUEST_LOG to Azure Blob Storage using REST API"""
+    logging.info("💾 Starting save_request_log...")
     try:
-        # Create directory if it doesn't exist
-        os.makedirs(os.path.dirname(TEMP_FILE_PATH), exist_ok=True)
+        if not AZURE_STORAGE_AVAILABLE:
+            logging.warning("❌ Azure Storage not available for save")
+            return
         
-        with open(TEMP_FILE_PATH, 'w') as f:
-            json.dump(REQUEST_LOG, f, default=str, indent=2)
+        # Create container first (PUT request)
+        container_url_path = f"/{CONTAINER_NAME}?restype=container"
+        container_response = make_storage_request('PUT', container_url_path)
+        if container_response and container_response.status_code not in [201, 409]:  # 201=created, 409=already exists
+            logging.warning(f"Container creation response: {container_response.status_code}")
         
-        # Verify the file was written
-        if os.path.exists(TEMP_FILE_PATH):
-            file_size = os.path.getsize(TEMP_FILE_PATH)
-            logging.info(f"✅ Successfully saved REQUEST_LOG to {TEMP_FILE_PATH} ({file_size} bytes)")
-            logging.info(f"💾 Saved {len(REQUEST_LOG)} keys: {list(REQUEST_LOG.keys())}")
+        # Upload data
+        json_data = json.dumps(REQUEST_LOG, default=str, indent=2)
+        url_path = f"/{CONTAINER_NAME}/{BLOB_NAME}"
+        logging.info(f"📤 Uploading {len(json_data)} bytes to blob: {url_path}")
+        
+        response = make_storage_request('PUT', url_path, json_data.encode('utf-8'))
+        
+        if response and response.status_code == 201:
+            logging.info(f"✅ Saved REQUEST_LOG to Azure Storage ({len(json_data)} bytes)")
         else:
-            logging.error(f"❌ File was not created at {TEMP_FILE_PATH}")
+            logging.error(f"❌ Upload failed with status: {response.status_code if response else 'None'}")
+            
     except Exception as e:
-        logging.error(f"❌ Failed to save REQUEST_LOG to file: {e}")
-        logging.exception("Full save error traceback:")
+        logging.error(f"❌ Failed to save to Azure Storage: {e}")
 
 # Load existing data and add debug info
 REQUEST_LOG = load_request_log()
 REQUEST_LOG.setdefault("_debug", []).append({
     "timestamp": INSTANCE_START_TIME,
-    "message": f"Instance started (ID: {INSTANCE_ID})",
+    "message": f"Instance started (ID: {INSTANCE_ID}) - Azure Storage enabled",
     "instance_id": INSTANCE_ID,
-    "temp_file_path": TEMP_FILE_PATH,
     "website_instance_id": os.environ.get('WEBSITE_INSTANCE_ID', 'Not set'),
-    "note": "File persistence may not work across instance restarts in Azure Functions"
+    "storage_enabled": STORAGE_CONNECTION_STRING is not None and AZURE_STORAGE_AVAILABLE,
+    "container_name": CONTAINER_NAME,
+    "note": "Using Azure Blob Storage for persistence across instances"
 })
 
 @app.route(
@@ -1014,29 +1109,19 @@ def health_check(req: func.HttpRequest) -> func.HttpResponse:
     """Health check with detailed Azure Functions environment info"""
     logging.info("health_check: START")
     
-    # Check file system status
-    file_exists = os.path.exists(TEMP_FILE_PATH)
-    file_size = 0
-    file_permissions = "N/A"
-    temp_dir_writable = False
+    # Check Azure Storage status
+    storage_status = "available" if AZURE_STORAGE_AVAILABLE else "not available"
+    storage_test_result = False
     
     try:
-        if file_exists:
-            file_size = os.path.getsize(TEMP_FILE_PATH)
-            file_permissions = oct(os.stat(TEMP_FILE_PATH).st_mode)[-3:]
+        if AZURE_STORAGE_AVAILABLE:
+            # Test Azure Storage connectivity by making a simple request
+            url_path = f"/{CONTAINER_NAME}?restype=container"
+            response = make_storage_request('HEAD', url_path)
+            storage_test_result = response is not None and response.status_code in [200, 404]
     except Exception as e:
-        logging.warning(f"Error checking file stats: {e}")
-    
-    try:
-        # Test if we can write to temp directory
-        test_file = os.path.join(tempfile.gettempdir(), f"test_{INSTANCE_ID}.tmp")
-        with open(test_file, 'w') as f:
-            f.write("test")
-        os.remove(test_file)
-        temp_dir_writable = True
-    except Exception as e:
-        logging.warning(f"Temp directory not writable: {e}")
-    
+        logging.warning(f"Error testing storage connectivity: {e}")
+
     health_info = {
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat() + "Z",
@@ -1051,15 +1136,15 @@ def health_check(req: func.HttpRequest) -> func.HttpResponse:
             "functions_worker_runtime": os.environ.get('FUNCTIONS_WORKER_RUNTIME', 'Not set'),
         },
         
-        # File System Status
-        "file_system": {
-            "temp_file_path": TEMP_FILE_PATH,
-            "file_exists": file_exists,
-            "file_size_bytes": file_size,
-            "file_permissions": file_permissions,
-            "temp_dir": tempfile.gettempdir(),
-            "temp_dir_writable": temp_dir_writable,
-            "cwd": os.getcwd(),
+        # Storage Status
+        "storage": {
+            "azure_storage_available": AZURE_STORAGE_AVAILABLE,
+            "storage_status": storage_status,
+            "connection_string_present": STORAGE_CONNECTION_STRING is not None,
+            "container_name": CONTAINER_NAME,
+            "blob_name": BLOB_NAME,
+            "connectivity_test": storage_test_result,
+            "account_name": storage_config.get('account_name') if storage_config else None,
         },
         
         # REQUEST_LOG Status
