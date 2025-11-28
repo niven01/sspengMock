@@ -261,7 +261,7 @@ def debug_endpoint(req: func.HttpRequest) -> func.HttpResponse:
 
 @app.route(
     route="MockApiFunction",
-    methods=["GET", "POST", "PUT", "DELETE"],
+    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
     auth_level=func.AuthLevel.ANONYMOUS,
 )
 def main_mock_endpoint(req: func.HttpRequest) -> func.HttpResponse:
@@ -1280,3 +1280,77 @@ def debug_storage_endpoint(req: func.HttpRequest) -> func.HttpResponse:
             "Access-Control-Allow-Headers": "Content-Type, Accept"
         }
     )
+
+# Catch-all route to handle any request that doesn't match other routes
+@app.route(
+    route="{*path}",
+    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
+    auth_level=func.AuthLevel.ANONYMOUS,
+)
+def catch_all_endpoint(req: func.HttpRequest) -> func.HttpResponse:
+    """Catch-all endpoint to handle any request path"""
+    logging.info("=" * 60)
+    logging.info("catch_all_endpoint: FUNCTION CALLED!")
+    logging.info("catch_all_endpoint: Method=%s URL=%s", req.method, req.url)
+    
+    # Extract path from route parameters
+    path = req.route_params.get('path', 'unknown')
+    logging.info("catch_all_endpoint: Captured path=%s", path)
+    
+    try:
+        record = {
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "method": req.method,
+            "path": path,
+            "query": dict(req.params),
+            "headers": dict(req.headers),
+            "body": req.get_body().decode('utf-8') if req.get_body() else None,
+            "endpoint": "catch-all",
+            "url": req.url
+        }
+        
+        # Store in REQUEST_LOG
+        REQUEST_LOG.setdefault(path, []).append(record)
+        
+        # Log the capture
+        logging.info("✅ catch_all_endpoint: Captured %s request to %s", req.method, path)
+        
+        # Save to storage asynchronously
+        save_request_log_to_storage(REQUEST_LOG)
+        
+        # Return success response
+        return func.HttpResponse(
+            body=json.dumps({
+                "status": "captured",
+                "message": f"Captured {req.method} request to {path}",
+                "timestamp": record["timestamp"],
+                "path": path,
+                "endpoint": "catch-all"
+            }, indent=2),
+            mimetype="application/json", 
+            status_code=200,
+            headers={
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS",
+                "Access-Control-Allow-Headers": "Content-Type, Accept, Authorization"
+            }
+        )
+        
+    except Exception as e:
+        logging.error("❌ catch_all_endpoint: Error processing request: %s", e)
+        logging.exception("Full error traceback:")
+        
+        return func.HttpResponse(
+            body=json.dumps({
+                "status": "error",
+                "message": f"Error processing request: {str(e)}",
+                "path": path
+            }, indent=2),
+            mimetype="application/json",
+            status_code=500,
+            headers={
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS", 
+                "Access-Control-Allow-Headers": "Content-Type, Accept, Authorization"
+            }
+        )
