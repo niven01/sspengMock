@@ -1,15 +1,32 @@
-# 🕵️ API Dashboard
+# 🕵️ API Monitor
 
-A sophisticated Azure Functions-based mock API server with real-time request monitoring and an elegant web interface for intercepting and analyzing API traffic.
+A professional Azure Functions-based API monitoring and mocking platform with a sleek Beeceptor-style interface for intercepting, analyzing, and managing HTTP requests in real-time.
 
-## ✨ Features
+## ✨ Key Features
 
-- **🎯 Mock API Endpoints**: Capture and respond to any HTTP request
-- **🕵️ Real-time Monitoring**: Live web dashboard showing captured requests
-- **📊 Request Analytics**: Detailed view of headers, body, query parameters
-- **🎨 Beautiful UI**: Purple-themed responsive interface with animations
-- **⏸️ Pause Controls**: Toggle auto-refresh for detailed inspection
-- **💾 In-memory Storage**: Persistent request history during runtime
+### 🎯 **Smart API Mocking**
+- **Universal endpoint capture**: Intercept any HTTP request (GET, POST, PUT, DELETE, PATCH)
+- **Automatic persistence**: Azure Blob Storage with cross-instance data sharing
+- **Real-time processing**: Instant request capture with detailed metadata
+- **JSON-first design**: Intelligent content parsing and formatting
+
+### 🖥️ **Professional Web Interface**
+- **Beeceptor-inspired design**: Clean, modern UI matching industry standards
+- **Logo integration**: Branded interface with custom logo support
+- **Responsive layout**: Works perfectly on desktop and mobile
+- **Live statistics bar**: Request counts, active endpoints, and system status
+
+### 🔧 **Advanced Management**
+- **Auto-cleanup**: Requests older than 1 hour automatically removed
+- **Manual clearing**: One-click clear all functionality with confirmation
+- **Collapsible views**: Expandable request cards with state persistence
+- **Auto-refresh control**: 2-second refresh with pause/resume capability
+
+### 📊 **Rich Request Analytics**
+- **Beautifully formatted JSON**: 4-space indentation with proper line breaks
+- **HTTP method badges**: Color-coded method indicators (GET=green, POST=blue, etc.)
+- **Detailed inspection**: Headers, query parameters, and request body
+- **Instance tracking**: Multi-instance deployment visibility
 
 ## 🚀 Quick Start
 
@@ -40,15 +57,36 @@ A sophisticated Azure Functions-based mock API server with real-time request mon
    - Mock API: `http://sspengmock-e6ghe2fthbdqhaeb.uksouth-01.azurewebsites.net/api/MockApiFunction`
    - Web Dashboard: `http://sspengmock-e6ghe2fthbdqhaeb.uksouth-01.azurewebsites.net/api/inspect/MockApiFunction`
 
+## 🚀 Live Demo
+
+**Try it now**: https://sspengmock-e6ghe2fthbdqhaeb.uksouth-01.azurewebsites.net/api/inspect/MockApiFunction
+
+### Quick Test
+```bash
+# Send a test request
+curl -X POST https://sspengmock-e6ghe2fthbdqhaeb.uksouth-01.azurewebsites.net/api/MockApiFunction \
+  -H "Content-Type: application/json" \
+  -d '{"test": "hello world", "timestamp": "'$(date)'"}'  
+
+# View in the web interface
+open https://sspengmock-e6ghe2fthbdqhaeb.uksouth-01.azurewebsites.net/api/inspect/MockApiFunction
+```
+
 ## 📡 API Endpoints
 
-### 🎯 Mock Endpoints
+### 🎯 Mock Endpoint
 
-#### Main Mock Endpoint
+#### Primary Mock API
 ```
 POST|GET|PUT|DELETE /api/MockApiFunction
 ```
-Captures requests to the main mock endpoint.
+**Features**:
+- ✅ Captures all request details (headers, body, query params)
+- ✅ Automatic cleanup (removes requests older than 1 hour)
+- ✅ Cross-instance persistence via Azure Storage
+- ✅ JSON response with captured request details
+
+**Live URL**: `https://sspengmock-e6ghe2fthbdqhaeb.uksouth-01.azurewebsites.net/api/MockApiFunction`
 
 **Example Request**:
 ```bash
@@ -80,41 +118,46 @@ curl -X POST http://sspengmock-e6ghe2fthbdqhaeb.uksouth-01.azurewebsites.net/api
 }
 ```
 
-#### Dynamic Mock Endpoint
-```
-GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS /api/mock/{path}
-```
-Captures requests to any dynamic path for flexible testing.
+### 🔍 Web Interface
 
-**Example**:
-```bash
-# Mock a user API
-curl -X GET http://sspengmock-e6ghe2fthbdqhaeb.uksouth-01.azurewebsites.net/api/mock/users/123
-
-# Mock a products API  
-curl -X POST http://sspengmock-e6ghe2fthbdqhaeb.uksouth-01.azurewebsites.net/api/mock/products \
-  -d '{"name": "Widget", "price": 29.99}'
-```
-
-### 🔍 Inspection Endpoints
-
-#### Web Dashboard
+#### Interactive Dashboard
 ```
 GET /api/inspect/{path}
 ```
-Access the beautiful web interface for real-time request monitoring.
+**Features**:
+- 🎨 **Beeceptor-style UI** with professional design
+- 🏢 **Logo integration** with branded header
+- 📊 **Live statistics** showing request counts and system status  
+- 🔄 **Auto-refresh** with 2-second intervals and pause control
+- 📱 **Responsive design** optimized for all devices
+- 🗂️ **Collapsible cards** with persistent expand/collapse state
+- 🗑️ **Clear all button** with confirmation and visual feedback
 
-**URLs**:
-- `http://sspengmock-e6ghe2fthbdqhaeb.uksouth-01.azurewebsites.net/api/inspect/MockApiFunction` - Monitor main endpoint
-- `http://sspengmock-e6ghe2fthbdqhaeb.uksouth-01.azurewebsites.net/api/inspect/users` - Monitor `/api/mock/users` requests
-- `http://sspengmock-e6ghe2fthbdqhaeb.uksouth-01.azurewebsites.net/api/inspect/products` - Monitor `/api/mock/products` requests
+**Live Dashboard**: https://sspengmock-e6ghe2fthbdqhaeb.uksouth-01.azurewebsites.net/api/inspect/MockApiFunction
 
-#### JSON API
+#### JSON API Access
 ```
-GET /api/inspect/{path}
-Accept: application/json
+GET /api/inspect/{path}?format=json
 ```
-Retrieve captured requests as JSON data.
+Programmatic access to captured request data.
+
+#### Clear Requests
+```
+POST /api/clear/{path}
+```
+Manually clear all requests for a specific endpoint.
+
+#### System Health
+```
+GET /api/health
+```
+System status, storage connectivity, and instance information.
+
+#### Logo Serving
+```
+GET /api/logo.png
+```
+Serves the integrated logo for the web interface.
 
 **Response**:
 ```json
@@ -133,53 +176,90 @@ Retrieve captured requests as JSON data.
 }
 ```
 
-## 🎨 Web Dashboard Features
+## 🎨 Professional Interface Features
 
-### 📊 Request Cards
-- **Collapsible design**: Click to expand/collapse request details
-- **Method badges**: Color-coded HTTP methods (GET, POST, PUT, DELETE, PATCH)
-- **Body indicators**: "HAS BODY" badge for requests with payloads
-- **Timestamps**: Local time formatting for easy reading
+### 📊 **Modern Dashboard Design**
+- **Clean navbar** with logo and brand identity
+- **Statistics bar** showing total requests, active endpoints, instance ID, and storage status
+- **Professional color scheme** with subtle shadows and modern typography
+- **Responsive grid layout** that adapts to any screen size
 
-### 🎯 Organized Data Display
-- **Query Parameters**: Clean key-value grid layout
-- **Important Headers**: Highlighted essential headers (content-type, authorization, etc.)
-- **Request Body**: Formatted JSON with syntax highlighting
-- **All Headers**: Complete header information in expandable sections
+### 🔧 **Interactive Controls**
+- **Auto-refresh toggle**: 🔄 Active (2s refresh) ↔ ⏸️ Paused
+- **Clear all button**: 🗑️ One-click clearing with confirmation dialog
+- **Visual feedback**: Loading states, success confirmations, error handling
+- **State persistence**: Remembers expanded cards across page refreshes
 
-### ⏸️ Interactive Controls
-- **Auto-refresh toggle**: Pause monitoring for detailed inspection
-- **State preservation**: Expanded cards stay open during refreshes
-- **Responsive design**: Works on desktop and mobile devices
+### 📋 **Request Cards**
+- **HTTP method badges**: Color-coded (GET=green, POST=blue, PUT=orange, DELETE=red)
+- **Collapsible design**: Click headers to expand/collapse details
+- **Formatted timestamps**: Clean time display (HH:MM:SS)
+- **Instance tracking**: Shows which function instance processed each request
 
-### 🎨 Purple Theme
-- **Gradient backgrounds**: Modern glass morphism effects
-- **Smooth animations**: Hover effects and transitions
-- **Professional styling**: Clean, readable typography
+### 💎 **Data Presentation**
+- **Beautiful JSON formatting**: 4-space indentation with proper line breaks
+- **Syntax highlighting**: Clear visual distinction for different data types
+- **Organized sections**: Query Parameters, Request Headers, Request Body
+- **Empty state handling**: Friendly messages when no data is available
 
-## 🔧 Configuration
+### 🔄 **Smart Data Management**
+- **Automatic cleanup**: Removes requests older than 1 hour
+- **Azure Storage persistence**: Data survives function restarts and deployments  
+- **Cross-instance sharing**: Multiple function instances share the same data
+- **Real-time updates**: Fresh data loaded on every page refresh
 
-### Environment Variables
-Create a `local.settings.json` file:
+## 🔧 Configuration & Setup
+
+### 🚀 **Quick Local Setup**
+
+1. **Clone the repository**:
+   ```bash
+   git clone https://github.com/niven01/sspengMock.git
+   cd sspengMock
+   ```
+
+2. **Install dependencies**:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. **Configure local settings** (`local.settings.json`):
+   ```json
+   {
+     "IsEncrypted": false,
+     "Values": {
+       "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+       "FUNCTIONS_WORKER_RUNTIME": "python"
+     }
+   }
+   ```
+
+4. **Start locally**:
+   ```bash
+   func start
+   ```
+
+5. **Access your local instance**:
+   - API: `http://localhost:7071/api/MockApiFunction`
+   - Dashboard: `http://localhost:7071/api/inspect/MockApiFunction`
+
+### ☁️ **Azure Storage Configuration**
+
+For production deployment, configure Azure Blob Storage:
 
 ```json
 {
-  "IsEncrypted": false,
   "Values": {
-    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
-    "FUNCTIONS_WORKER_RUNTIME": "python"
+    "AzureWebJobsStorage": "DefaultEndpointsProtocol=https;AccountName=yourstorageaccount;AccountKey=yourkey;EndpointSuffix=core.windows.net"
   }
 }
 ```
 
-### Host Configuration
-The `host.json` file configures the Azure Functions runtime:
-
-```json
-{
-  "version": "2.0"
-}
-```
+**Storage Features**:
+- 🗂️ **Container**: `mock-api-data`
+- 📄 **Blob**: `request-log.json`  
+- 🔄 **Auto-cleanup**: Requests older than 1 hour removed
+- 🌍 **Multi-instance**: Shared across all function instances
 
 ## 📝 Use Cases
 
@@ -216,27 +296,56 @@ http://your-domain.com/api/inspect/webhooks/stripe
 
 ## 🚀 Deployment
 
-### Azure Functions Deployment
+### 🌍 **Azure Functions Deployment**
 
-1. **Create Azure Function App**:
-   ```bash
-   az functionapp create \
-     --resource-group myResourceGroup \
-     --consumption-plan-location westus \
-     --name myMockApi \
-     --storage-account mystorageaccount \
-     --runtime python \
-     --runtime-version 3.9
-   ```
+#### **Method 1: Azure Functions Core Tools**
+```bash
+# Deploy directly from local machine
+func azure functionapp publish sspengMock --python
+```
 
-2. **Deploy the function**:
-   ```bash
-   func azure functionapp publish myMockApi
-   ```
+#### **Method 2: GitHub Actions CI/CD**
+The repository includes automated deployment via GitHub Actions:
 
-3. **Access your deployed API**:
-   - Mock API: `https://myMockApi.azurewebsites.net/api/MockApiFunction`
-   - Dashboard: `https://myMockApi.azurewebsites.net/api/inspect/MockApiFunction`
+```yaml
+# .github/workflows/main_sspengmock.yml
+name: Build and deploy Python project to Azure Function App
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: "3.13"
+```
+
+**Features**:
+- ✅ **Automatic deployment** on push to main branch
+- ✅ **Manual deployment** via workflow dispatch
+- ✅ **Logo inclusion** in deployment package
+- ✅ **Environment-specific** Python version handling
+
+#### **Method 3: Azure CLI**
+```bash
+# Create Function App
+az functionapp create \
+  --resource-group myResourceGroup \
+  --consumption-plan-location uksouth \
+  --name sspengMock \
+  --storage-account mystorageaccount \
+  --runtime python \
+  --runtime-version 3.13
+
+# Deploy code
+func azure functionapp publish sspengMock
+```
+
+### 🌐 **Production URLs**
+After deployment, your API will be available at:
+- **Mock API**: `https://yourapp.azurewebsites.net/api/MockApiFunction`
+- **Dashboard**: `https://yourapp.azurewebsites.net/api/inspect/MockApiFunction`
+- **Health Check**: `https://yourapp.azurewebsites.net/api/health`
 
 ## 📊 Architecture
 
@@ -275,41 +384,99 @@ sspengMock/
 └── README.md              # This documentation
 ```
 
-## 🤝 Contributing
+## 🛠️ Development & Contributing
+
+### 📁 **Project Structure**
+```
+sspengMock/
+├── function_app.py              # Main Azure Functions application
+├── host.json                   # Azure Functions runtime configuration  
+├── requirements.txt            # Python dependencies (azure-functions, azure-storage-blob)
+├── logo.png                    # Logo asset for web interface
+├── local.settings.json         # Local development settings
+├── .github/workflows/          # GitHub Actions CI/CD pipeline
+│   └── main_sspengmock.yml    # Automated deployment configuration
+└── README.md                   # This documentation
+```
+
+### 🔧 **Adding New Features**
+
+1. **New Mock Endpoints**: Add routes in `function_app.py`
+2. **UI Enhancements**: Update HTML template in `inspect_endpoint` function  
+3. **Storage Extensions**: Modify Azure Blob Storage structure
+4. **Auto-cleanup Logic**: Adjust `cleanup_old_requests()` function
+
+### 🤝 **Contributing**
 
 1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
-
-## 📄 License
-
-This project is licensed under the MIT License.
+2. Create a feature branch: `git checkout -b feature/your-feature`
+3. Make your changes with proper logging
+4. Test locally with `func start`
+5. Submit a pull request with clear description
 
 ## 🆘 Troubleshooting
 
-### Common Issues
+### 🔧 **Common Issues**
 
-**Function not loading**:
-- Ensure Python 3.9+ is installed
-- Check `requirements.txt` dependencies
-- Verify `function_app.py` is in the root directory
+**Function not starting locally**:
+```bash
+# Check Python version (3.12+ recommended)
+python --version
 
-**Dashboard not showing requests**:
-- Check browser developer console for errors
-- Ensure requests are being sent to the correct mock endpoints
-- Verify auto-refresh is enabled (green button)
+# Verify dependencies
+pip install -r requirements.txt
 
-**CORS issues**:
-- Add CORS headers in the function response if needed for browser access
+# Check function configuration
+func start --verbose
+```
 
-### Getting Help
+**Dashboard not loading requests**:
+- ✅ Verify requests are sent to `/api/MockApiFunction`
+- ✅ Check browser console for JavaScript errors
+- ✅ Ensure auto-refresh is enabled (🔄 green button)
+- ✅ Try manual page refresh
 
-- Check Azure Functions documentation
-- Review function logs in the Azure portal
-- Enable verbose logging in `local.settings.json`
+**Clear button not working**:
+- ✅ Check browser console for fetch errors
+- ✅ Verify network connectivity to `/api/clear/{path}`
+- ✅ Ensure confirmation dialog is accepted
+
+**Azure Storage errors**:
+```bash
+# Check storage configuration
+curl https://yourapp.azurewebsites.net/api/health
+
+# Verify connection string in Application Settings
+az functionapp config appsettings list --name sspengMock --resource-group myResourceGroup
+```
+
+### 📊 **Debugging Features**
+
+The interface includes comprehensive logging:
+- 🖥️ **Browser Console**: JavaScript execution logs
+- ☁️ **Azure Logs**: Function execution traces
+- 🩺 **Health Endpoint**: System status and connectivity tests
+- 📱 **Visual Feedback**: Button states and loading indicators
+
+### 🔗 **Support Resources**
+
+- 📚 [Azure Functions Documentation](https://docs.microsoft.com/azure/azure-functions/)
+- 🐍 [Python Azure Functions Guide](https://docs.microsoft.com/azure/azure-functions/functions-reference-python)
+- ☁️ [Azure Blob Storage SDK](https://docs.microsoft.com/python/api/azure-storage-blob/)
+- 🌐 [GitHub Repository Issues](https://github.com/niven01/sspengMock/issues)
 
 ---
 
-Made with 💜 by the API Spy Dashboard team 🕵️‍♂️
+## 📄 License
+
+MIT License - feel free to use this project for your API testing and monitoring needs.
+
+## 🏷️ Version
+
+**Current Version**: Professional API Monitor with Beeceptor-style Interface  
+**Last Updated**: November 2025  
+**Features**: Auto-cleanup, Azure Storage, Professional UI, Logo Integration
+
+---
+
+*Made with 💜 for API developers who need reliable request monitoring and testing tools* 🚀

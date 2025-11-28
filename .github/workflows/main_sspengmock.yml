@@ -24,13 +24,14 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      # Zip ONLY the function folder + requirements + host.json
+      # Zip ONLY the function folder + requirements + host.json + logo
       - name: Create deployment package
         run: |
           zip -r release.zip \
             function_app.py \
             host.json \
-            requirements.txt
+            requirements.txt \
+            logo.png
 
       - name: Upload artifact for deployment
         uses: actions/upload-artifact@v4

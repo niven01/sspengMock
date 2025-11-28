@@ -92,6 +92,44 @@ def save_request_log():
         logging.error(f"❌ Failed to save to Azure Storage: {e}")
         logging.exception("Full save error traceback:")
 
+def cleanup_old_requests():
+    """Remove requests older than 1 hour from all endpoints"""
+    try:
+        from datetime import datetime, timedelta
+        
+        cutoff_time = datetime.utcnow() - timedelta(hours=1)
+        cutoff_iso = cutoff_time.isoformat() + "Z"
+        
+        total_removed = 0
+        
+        for path in list(REQUEST_LOG.keys()):
+            if path == "_debug":
+                continue
+                
+            if isinstance(REQUEST_LOG[path], list):
+                original_count = len(REQUEST_LOG[path])
+                REQUEST_LOG[path] = [
+                    req for req in REQUEST_LOG[path]
+                    if isinstance(req, dict) and req.get('timestamp', '') > cutoff_iso
+                ]
+                removed_count = original_count - len(REQUEST_LOG[path])
+                total_removed += removed_count
+                
+                if removed_count > 0:
+                    logging.info(f"🧹 Cleaned up {removed_count} old requests from {path}")
+                    
+                # Remove empty endpoints
+                if len(REQUEST_LOG[path]) == 0:
+                    del REQUEST_LOG[path]
+                    logging.info(f"🗑️ Removed empty endpoint: {path}")
+        
+        if total_removed > 0:
+            logging.info(f"✨ Total cleanup: removed {total_removed} requests older than 1 hour")
+            save_request_log()  # Save after cleanup
+            
+    except Exception as e:
+        logging.error(f"❌ Error during cleanup: {e}")
+
 # Load existing data and add debug info
 REQUEST_LOG = load_request_log()
 REQUEST_LOG.setdefault("_debug", []).append({
@@ -112,6 +150,9 @@ def main_mock_endpoint(req: func.HttpRequest) -> func.HttpResponse:
     logging.info("=" * 60)
     
     try:
+        # Cleanup old requests before processing new ones
+        cleanup_old_requests()
+        
         # Use the route as the path for main endpoint
         path = "MockApiFunction"
         
@@ -248,6 +289,25 @@ def inspect_endpoint(req: func.HttpRequest) -> func.HttpResponse:
         .auto-refresh-btn:hover {{ background: #059669; }}
         .auto-refresh-btn.paused {{ background: #ef4444; }}
         .auto-refresh-btn.paused:hover {{ background: #dc2626; }}
+        .clear-btn {{
+            background: #ef4444;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.875rem;
+            font-weight: 500;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }}
+        .clear-btn:hover {{ background: #dc2626; }}
+        .clear-btn:disabled {{ 
+            background: #9ca3af;
+            cursor: not-allowed;
+        }}
         .container {{ max-width: 1200px; margin: 0 auto; padding: 2rem; }}
         .page-header {{
             margin-bottom: 2rem;
@@ -431,6 +491,10 @@ def inspect_endpoint(req: func.HttpRequest) -> func.HttpResponse:
             <div class="brand">API Monitor</div>
         </div>
         <div class="controls">
+            <button class="clear-btn" onclick="clearRequests()">
+                <span>🗑️</span>
+                <span>Clear All</span>
+            </button>
             <button class="auto-refresh-btn" id="autoRefreshBtn" onclick="toggleAutoRefresh()">
                 <span id="refreshIcon">🔄</span>
                 <span id="refreshText">Auto-refresh: 2s</span>
@@ -537,6 +601,9 @@ def inspect_endpoint(req: func.HttpRequest) -> func.HttpResponse:
     </div>
     
     <script>
+        // Path variable for API calls
+        const currentPath = "{path}";
+        
         let autoRefreshEnabled = true;
         let refreshInterval;
         let expandedStates = new Set();
@@ -611,8 +678,95 @@ def inspect_endpoint(req: func.HttpRequest) -> func.HttpResponse:
             }, 2000);
         }
         
+        async function clearRequests() {
+            console.log('clearRequests function called');
+            
+            if (!confirm('Are you sure you want to clear all requests for this endpoint?')) {
+                console.log('User cancelled clear operation');
+                return;
+            }
+            
+            const clearBtn = document.querySelector('.clear-btn');
+            if (!clearBtn) {
+                console.error('Clear button not found');
+                return;
+            }
+            
+            console.log('Starting clear operation...');
+            const originalText = clearBtn.innerHTML;
+            clearBtn.disabled = true;
+            clearBtn.innerHTML = '<span>⏳</span><span>Clearing...</span>';
+            
+            try {
+                const url = `/api/clear/${{currentPath}}`;
+                console.log('Fetching:', url);
+                
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                console.log('Response status:', response.status);
+                console.log('Response ok:', response.ok);
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    console.log('Result:', result);
+                    
+                    if (result.success) {
+                        clearBtn.innerHTML = '<span>✅</span><span>Cleared!</span>';
+                        console.log('Clear successful, clearing localStorage and reloading page in 1 second...');
+                        
+                        // Clear localStorage to reset expanded states
+                        try {
+                            localStorage.removeItem('expandedStates');
+                        } catch (e) {
+                            console.log('Could not clear localStorage');
+                        }
+                        
+                        setTimeout(() => {
+                            window.location.reload(true); // Force reload from server
+                        }, 1000);
+                    } else {
+                        throw new Error(result.message || 'Clear operation failed');
+                    }
+                } else {
+                    const errorText = await response.text();
+                    console.error('HTTP error response:', errorText);
+                    throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
+                }
+            } catch (error) {
+                console.error('Error clearing requests:', error);
+                clearBtn.innerHTML = '<span>❌</span><span>Error</span>';
+                setTimeout(() => {
+                    clearBtn.disabled = false;
+                    clearBtn.innerHTML = originalText;
+                }, 2000);
+            }
+        }
+        
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', function() {
+            console.log('DOM loaded, initializing...');
+            
+            // Check if clear button exists and attach event
+            const clearBtn = document.querySelector('.clear-btn');
+            if (clearBtn) {
+                console.log('Clear button found, onclick should work');
+            } else {
+                console.error('Clear button NOT found');
+            }
+            
+            // Check if auto-refresh button exists
+            const refreshBtn = document.getElementById('autoRefreshBtn');
+            if (refreshBtn) {
+                console.log('Auto-refresh button found');
+            } else {
+                console.error('Auto-refresh button NOT found');
+            }
+            
             restoreExpandedStates();
             startAutoRefresh();
         });
@@ -660,6 +814,52 @@ def serve_logo(req: func.HttpRequest) -> func.HttpResponse:
             return func.HttpResponse("Logo not found", status_code=404)
     except Exception as e:
         return func.HttpResponse(f"Error serving logo: {str(e)}", status_code=500)
+
+@app.route(route="clear/{path:alpha}", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
+def clear_requests(req: func.HttpRequest) -> func.HttpResponse:
+    """Clear all requests for a specific path"""
+    path = req.route_params.get('path', '')
+    
+    try:
+        # Load fresh data
+        fresh_data = load_request_log()
+        
+        if path in fresh_data:
+            removed_count = len(fresh_data[path]) if isinstance(fresh_data[path], list) else 0
+            del fresh_data[path]
+            
+            # Update global REQUEST_LOG and save
+            REQUEST_LOG.clear()
+            REQUEST_LOG.update(fresh_data)
+            save_request_log()
+            
+            logging.info(f"🗑️ Cleared {removed_count} requests from {path}")
+            return func.HttpResponse(
+                json.dumps({"message": f"Cleared {removed_count} requests from {path}", "success": True}),
+                mimetype="application/json",
+                status_code=200,
+                headers={
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "POST",
+                    "Access-Control-Allow-Headers": "Content-Type"
+                }
+            )
+        else:
+            return func.HttpResponse(
+                json.dumps({"message": f"No data found for path {path}", "success": False}),
+                mimetype="application/json",
+                status_code=404,
+                headers={"Access-Control-Allow-Origin": "*"}
+            )
+            
+    except Exception as e:
+        logging.error(f"Error clearing requests: {e}")
+        return func.HttpResponse(
+            json.dumps({"error": str(e), "success": False}),
+            mimetype="application/json",
+            status_code=500,
+            headers={"Access-Control-Allow-Origin": "*"}
+        )
 
 @app.route(route="health", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
 def health_check(req: func.HttpRequest) -> func.HttpResponse:
