@@ -4,9 +4,15 @@ import azure.functions as func
 from datetime import datetime
 import os
 import uuid
-from azure.storage.blob import BlobServiceClient
-import asyncio
 from concurrent.futures import ThreadPoolExecutor
+
+# Try to import Azure Storage, fallback gracefully if not available
+try:
+    from azure.storage.blob import BlobServiceClient
+    AZURE_STORAGE_AVAILABLE = True
+except ImportError:
+    logging.warning("Azure Storage SDK not available, falling back to in-memory storage")
+    AZURE_STORAGE_AVAILABLE = False
 
 app = func.FunctionApp()
 
@@ -24,6 +30,8 @@ executor = ThreadPoolExecutor(max_workers=3)
 
 def get_blob_service_client():
     """Get Azure Blob Storage client"""
+    if not AZURE_STORAGE_AVAILABLE:
+        return None
     if not STORAGE_CONNECTION_STRING:
         logging.warning("No AzureWebJobsStorage connection string found")
         return None
@@ -96,7 +104,7 @@ REQUEST_LOG.setdefault("_debug", []).append({
     "message": f"Instance started (ID: {INSTANCE_ID}) - Azure Storage enabled",
     "instance_id": INSTANCE_ID,
     "website_instance_id": os.environ.get('WEBSITE_INSTANCE_ID', 'Not set'),
-    "storage_enabled": STORAGE_CONNECTION_STRING is not None,
+    "storage_enabled": STORAGE_CONNECTION_STRING is not None and AZURE_STORAGE_AVAILABLE,
     "container_name": CONTAINER_NAME,
     "note": "Using Azure Blob Storage for persistence across instances"
 })
@@ -1088,7 +1096,7 @@ def health_check(req: func.HttpRequest) -> func.HttpResponse:
             "persistence": "cross-instance",
             "container_name": CONTAINER_NAME,
             "blob_name": BLOB_NAME,
-            "storage_connection_available": STORAGE_CONNECTION_STRING is not None,
+            "storage_connection_available": STORAGE_CONNECTION_STRING is not None and AZURE_STORAGE_AVAILABLE,
             "note": "Data persists across all instances using Azure Blob Storage"
         },
         
