@@ -1,9 +1,9 @@
 name: Build and deploy Python project to Azure Function App - sspengMock
 
 on:
-  push:
-    branches:
-      - main
+  # push:
+  #   branches:
+  #     - main
   workflow_dispatch:
 
 env:
