@@ -10,8 +10,12 @@ from concurrent.futures import ThreadPoolExecutor
 try:
     from azure.storage.blob import BlobServiceClient
     AZURE_STORAGE_AVAILABLE = True
-except ImportError:
-    logging.warning("Azure Storage SDK not available, falling back to in-memory storage")
+    logging.info("✅ Azure Storage SDK imported successfully")
+except ImportError as e:
+    logging.error(f"❌ Azure Storage SDK import failed: {e}")
+    AZURE_STORAGE_AVAILABLE = False
+except Exception as e:
+    logging.error(f"❌ Unexpected error importing Azure Storage: {e}")
     AZURE_STORAGE_AVAILABLE = False
 
 app = func.FunctionApp()
@@ -25,75 +29,130 @@ STORAGE_CONNECTION_STRING = os.environ.get('AzureWebJobsStorage')
 CONTAINER_NAME = 'mock-api-data'
 BLOB_NAME = 'request-log.json'
 
+# Debug logging for Azure Storage setup
+logging.info(f"🔍 Azure Storage Debug Info:")
+logging.info(f"  - SDK Available: {AZURE_STORAGE_AVAILABLE}")
+logging.info(f"  - Connection String Present: {STORAGE_CONNECTION_STRING is not None}")
+logging.info(f"  - Connection String Length: {len(STORAGE_CONNECTION_STRING) if STORAGE_CONNECTION_STRING else 0}")
+logging.info(f"  - Container Name: {CONTAINER_NAME}")
+logging.info(f"  - Blob Name: {BLOB_NAME}")
+
+if STORAGE_CONNECTION_STRING:
+    # Log first and last 20 characters of connection string (for debugging)
+    conn_str_masked = f"{STORAGE_CONNECTION_STRING[:20]}...{STORAGE_CONNECTION_STRING[-20:]}" if len(STORAGE_CONNECTION_STRING) > 40 else "TOO_SHORT"
+    logging.info(f"  - Connection String Sample: {conn_str_masked}")
+else:
+    logging.warning("❌ AzureWebJobsStorage environment variable not found")
+
 # Thread pool for async operations
 executor = ThreadPoolExecutor(max_workers=3)
 
 def get_blob_service_client():
     """Get Azure Blob Storage client"""
+    logging.info("🔗 Attempting to create Blob Service Client...")
+    
     if not AZURE_STORAGE_AVAILABLE:
+        logging.warning("❌ Azure Storage SDK not available")
         return None
+    
     if not STORAGE_CONNECTION_STRING:
-        logging.warning("No AzureWebJobsStorage connection string found")
+        logging.warning("❌ No AzureWebJobsStorage connection string found")
         return None
+        
     try:
-        return BlobServiceClient.from_connection_string(STORAGE_CONNECTION_STRING)
+        logging.info("📦 Creating BlobServiceClient...")
+        client = BlobServiceClient.from_connection_string(STORAGE_CONNECTION_STRING)
+        logging.info("✅ BlobServiceClient created successfully")
+        
+        # Test the connection
+        try:
+            account_info = client.get_account_information()
+            logging.info(f"✅ Storage account connection verified: {account_info}")
+        except Exception as e:
+            logging.warning(f"⚠️ Could not verify account info: {e}")
+            
+        return client
     except Exception as e:
-        logging.error(f"Failed to create blob service client: {e}")
+        logging.error(f"❌ Failed to create blob service client: {e}")
+        logging.exception("Full blob client creation error:")
         return None
 
 def load_request_log_from_storage():
     """Load REQUEST_LOG from Azure Blob Storage"""
+    logging.info("📥 Starting load_request_log_from_storage...")
+    
     try:
         blob_client = get_blob_service_client()
         if not blob_client:
+            logging.warning("❌ No blob client available, returning empty dict")
             return {}
         
+        logging.info(f"📁 Getting container client for: {CONTAINER_NAME}")
         container_client = blob_client.get_container_client(CONTAINER_NAME)
         
         # Create container if it doesn't exist
         try:
             container_client.create_container()
-            logging.info(f"Created container: {CONTAINER_NAME}")
-        except Exception:
-            pass  # Container might already exist
+            logging.info(f"✅ Created container: {CONTAINER_NAME}")
+        except Exception as e:
+            if "ContainerAlreadyExists" in str(e):
+                logging.info(f"📁 Container {CONTAINER_NAME} already exists")
+            else:
+                logging.warning(f"⚠️ Container creation issue: {e}")
         
         # Download blob
+        logging.info(f"📄 Getting blob client for: {BLOB_NAME}")
         blob_client = container_client.get_blob_client(BLOB_NAME)
+        
         try:
+            logging.info("📥 Downloading blob data...")
             blob_data = blob_client.download_blob().readall()
             data = json.loads(blob_data.decode('utf-8'))
             logging.info(f"✅ Loaded REQUEST_LOG from Azure Storage with {len(data)} keys")
+            logging.info(f"📊 Data keys: {list(data.keys())}")
             return data
         except Exception as e:
             if "BlobNotFound" in str(e):
-                logging.info("📝 No existing blob found, starting fresh")
+                logging.info("🆕 No existing blob found, starting fresh")
             else:
-                logging.warning(f"Failed to load from storage: {e}")
+                logging.warning(f"⚠️ Failed to download/parse blob: {e}")
             return {}
+            
     except Exception as e:
-        logging.error(f"Error loading from Azure Storage: {e}")
+        logging.error(f"❌ Error loading from Azure Storage: {e}")
+        logging.exception("Full load error traceback:")
         return {}
 
 def save_request_log_to_storage(request_log):
     """Save REQUEST_LOG to Azure Blob Storage (async)"""
     def _save():
+        logging.info("💾 Starting save_request_log_to_storage...")
         try:
             blob_client = get_blob_service_client()
             if not blob_client:
+                logging.warning("❌ No blob client available for save")
                 return
             
+            logging.info(f"📁 Getting container and blob clients...")
             container_client = blob_client.get_container_client(CONTAINER_NAME)
             blob_client = container_client.get_blob_client(BLOB_NAME)
             
             # Upload data
             json_data = json.dumps(request_log, default=str, indent=2)
+            logging.info(f"📤 Uploading {len(json_data)} bytes to blob...")
             blob_client.upload_blob(json_data.encode('utf-8'), overwrite=True)
-            logging.info(f"💾 Saved REQUEST_LOG to Azure Storage ({len(json_data)} bytes)")
+            logging.info(f"✅ Saved REQUEST_LOG to Azure Storage ({len(json_data)} bytes)")
+            logging.info(f"📊 Saved keys: {list(request_log.keys())}")
         except Exception as e:
-            logging.error(f"Failed to save to Azure Storage: {e}")
+            logging.error(f"❌ Failed to save to Azure Storage: {e}")
+            logging.exception("Full save error traceback:")
     
     # Save asynchronously to avoid blocking the request
-    executor.submit(_save)
+    try:
+        executor.submit(_save)
+        logging.info("🚀 Save operation submitted to executor")
+    except Exception as e:
+        logging.error(f"❌ Failed to submit save operation: {e}")
 
 # Initialize REQUEST_LOG with Azure Storage persistence
 REQUEST_LOG = load_request_log_from_storage()
@@ -1119,6 +1178,68 @@ def health_check(req: func.HttpRequest) -> func.HttpResponse:
     
     return func.HttpResponse(
         body=json.dumps(health_info, indent=2),
+        mimetype="application/json",
+        status_code=200,
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET",
+            "Access-Control-Allow-Headers": "Content-Type, Accept"
+        }
+    )
+
+@app.route(
+    route="debug/storage",
+    methods=["GET"],
+    auth_level=func.AuthLevel.ANONYMOUS,
+)
+def debug_storage_endpoint(req: func.HttpRequest) -> func.HttpResponse:
+    """Debug endpoint to test Azure Storage connection"""
+    logging.info("debug_storage_endpoint: START")
+    
+    debug_info = {
+        "azure_storage_sdk_available": AZURE_STORAGE_AVAILABLE,
+        "connection_string_available": STORAGE_CONNECTION_STRING is not None,
+        "connection_string_length": len(STORAGE_CONNECTION_STRING) if STORAGE_CONNECTION_STRING else 0,
+        "container_name": CONTAINER_NAME,
+        "blob_name": BLOB_NAME,
+        "test_results": {}
+    }
+    
+    # Test blob client creation
+    try:
+        blob_client = get_blob_service_client()
+        debug_info["test_results"]["blob_client_creation"] = "SUCCESS" if blob_client else "FAILED"
+        
+        if blob_client:
+            # Test account info
+            try:
+                account_info = blob_client.get_account_information()
+                debug_info["test_results"]["account_verification"] = "SUCCESS"
+                debug_info["account_info"] = str(account_info)
+            except Exception as e:
+                debug_info["test_results"]["account_verification"] = f"FAILED: {e}"
+            
+            # Test container operations
+            try:
+                container_client = blob_client.get_container_client(CONTAINER_NAME)
+                debug_info["test_results"]["container_client"] = "SUCCESS"
+                
+                # Test list blobs
+                try:
+                    blobs = list(container_client.list_blobs())
+                    debug_info["test_results"]["list_blobs"] = f"SUCCESS - Found {len(blobs)} blobs"
+                    debug_info["existing_blobs"] = [blob.name for blob in blobs]
+                except Exception as e:
+                    debug_info["test_results"]["list_blobs"] = f"FAILED: {e}"
+                    
+            except Exception as e:
+                debug_info["test_results"]["container_client"] = f"FAILED: {e}"
+                
+    except Exception as e:
+        debug_info["test_results"]["blob_client_creation"] = f"FAILED: {e}"
+    
+    return func.HttpResponse(
+        body=json.dumps(debug_info, indent=2, default=str),
         mimetype="application/json",
         status_code=200,
         headers={
