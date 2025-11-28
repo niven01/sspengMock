@@ -12,7 +12,9 @@ import base64
 import requests
 from datetime import datetime, timezone
 
-app = func.FunctionApp()
+# This is now a regular Python module, not a FunctionApp.
+# The routing is handled by the main() function and function.json.
+
 
 # Generate a unique instance ID to track function app instances
 INSTANCE_ID = str(uuid.uuid4())[:8]
@@ -194,11 +196,34 @@ REQUEST_LOG.setdefault("_debug", []).append({
 # Save initial debug info
 save_request_log_to_storage(REQUEST_LOG)
 
-@app.route(
-    route="test",
-    methods=["GET", "POST"],
-    auth_level=func.AuthLevel.ANONYMOUS,
-)
+def main(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    This is the single entry point for the Azure Function, defined by function.json.
+    It routes requests to the appropriate handler based on the path.
+    """
+    # The {*path} route in function.json captures the path here
+    path = req.route_params.get('path', '')
+    logging.info(f"main: Received {req.method} request for path: '{path}'")
+
+    # Simple router logic
+    if path == 'health':
+        return health_check(req)
+    elif path == 'debug/storage':
+        return debug_storage_endpoint(req)
+    elif path == 'inspect':
+        return inspect_all_endpoint(req)
+    elif path.startswith('inspect/'):
+        return inspect_endpoint(req)
+    elif path == 'test':
+        return test_endpoint(req)
+    elif path == 'MockApiFunction':
+        return main_mock_endpoint(req)
+    # This will now handle any path that is not explicitly defined above
+    else:
+        return catch_all_endpoint(req)
+
+# --- Handler Functions (previously decorated with @app.route) ---
+
 def test_endpoint(req: func.HttpRequest) -> func.HttpResponse:
     """Simple test endpoint to verify basic functionality"""
     logging.info("test_endpoint: START %s %s", req.method, req.url)
@@ -234,11 +259,6 @@ def test_endpoint(req: func.HttpRequest) -> func.HttpResponse:
         }
     )
 
-@app.route(
-    route="debug",
-    methods=["GET"],
-    auth_level=func.AuthLevel.ANONYMOUS,
-)
 def debug_endpoint(req: func.HttpRequest) -> func.HttpResponse:
     """Debug endpoint to show raw REQUEST_LOG data"""
     logging.info("debug_endpoint: START")
@@ -259,11 +279,6 @@ def debug_endpoint(req: func.HttpRequest) -> func.HttpResponse:
         }
     )
 
-@app.route(
-    route="MockApiFunction",
-    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
-    auth_level=func.AuthLevel.ANONYMOUS,
-)
 def main_mock_endpoint(req: func.HttpRequest) -> func.HttpResponse:
     logging.info("=" * 60)
     logging.info("main_mock_endpoint: FUNCTION CALLED!")
@@ -350,11 +365,6 @@ def main_mock_endpoint(req: func.HttpRequest) -> func.HttpResponse:
             status_code=500,
         )
 
-@app.route(
-    route="mock/{*path}",
-    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
-    auth_level=func.AuthLevel.ANONYMOUS,
-)
 def mock_endpoint(req: func.HttpRequest) -> func.HttpResponse:
     logging.info("mock_endpoint: START %s %s", req.method, req.url)
     
@@ -428,11 +438,6 @@ def mock_endpoint(req: func.HttpRequest) -> func.HttpResponse:
             status_code=500,
         )
 
-@app.route(
-    route="inspect",
-    methods=["GET"],
-    auth_level=func.AuthLevel.ANONYMOUS,
-)
 def inspect_all_endpoint(req: func.HttpRequest) -> func.HttpResponse:
     """Inspect endpoint without path parameter to show all captured requests"""
     logging.info("inspect_all_endpoint: START %s %s", req.method, req.url)
@@ -560,11 +565,6 @@ def inspect_all_endpoint(req: func.HttpRequest) -> func.HttpResponse:
             status_code=500,
         )
 
-@app.route(
-    route="inspect/{*path}",
-    methods=["GET"],
-    auth_level=func.AuthLevel.ANONYMOUS,
-)
 def inspect_endpoint(req: func.HttpRequest) -> func.HttpResponse:
     logging.info("inspect_endpoint: START %s %s", req.method, req.url)
     logging.info("inspect_endpoint: Headers: %s", dict(req.headers))
@@ -1149,11 +1149,6 @@ ${{formatJson(req.body)}}
             status_code=500,
         )
 
-@app.route(
-    route="health",
-    methods=["GET"],
-    auth_level=func.AuthLevel.ANONYMOUS,
-)
 def health_check(req: func.HttpRequest) -> func.HttpResponse:
     """Health check with Azure Functions environment info"""
     logging.info("health_check: START")
@@ -1210,11 +1205,6 @@ def health_check(req: func.HttpRequest) -> func.HttpResponse:
         }
     )
 
-@app.route(
-    route="debug/storage",
-    methods=["GET"],
-    auth_level=func.AuthLevel.ANONYMOUS,
-)
 def debug_storage_endpoint(req: func.HttpRequest) -> func.HttpResponse:
     """Debug endpoint to test Azure Storage connection"""
     logging.info("debug_storage_endpoint: START")
@@ -1282,11 +1272,6 @@ def debug_storage_endpoint(req: func.HttpRequest) -> func.HttpResponse:
     )
 
 # Catch-all route to handle any request that doesn't match other routes
-@app.route(
-    route="{*path}",
-    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
-    auth_level=func.AuthLevel.ANONYMOUS,
-)
 def catch_all_endpoint(req: func.HttpRequest) -> func.HttpResponse:
     """Catch-all endpoint to handle any request path"""
     logging.info("=" * 60)
