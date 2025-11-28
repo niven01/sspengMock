@@ -4,6 +4,9 @@ import azure.functions as func
 from datetime import datetime
 import os
 import uuid
+from azure.storage.blob import BlobServiceClient
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
 app = func.FunctionApp()
 
@@ -11,18 +14,95 @@ app = func.FunctionApp()
 INSTANCE_ID = str(uuid.uuid4())[:8]
 INSTANCE_START_TIME = datetime.utcnow().isoformat() + "Z"
 
-# In-memory storage only - simpler and more reliable for Azure Functions
-# Each instance will have its own REQUEST_LOG, no cross-instance persistence
-REQUEST_LOG = {}
+# Azure Storage configuration
+STORAGE_CONNECTION_STRING = os.environ.get('AzureWebJobsStorage')
+CONTAINER_NAME = 'mock-api-data'
+BLOB_NAME = 'request-log.json'
+
+# Thread pool for async operations
+executor = ThreadPoolExecutor(max_workers=3)
+
+def get_blob_service_client():
+    """Get Azure Blob Storage client"""
+    if not STORAGE_CONNECTION_STRING:
+        logging.warning("No AzureWebJobsStorage connection string found")
+        return None
+    try:
+        return BlobServiceClient.from_connection_string(STORAGE_CONNECTION_STRING)
+    except Exception as e:
+        logging.error(f"Failed to create blob service client: {e}")
+        return None
+
+def load_request_log_from_storage():
+    """Load REQUEST_LOG from Azure Blob Storage"""
+    try:
+        blob_client = get_blob_service_client()
+        if not blob_client:
+            return {}
+        
+        container_client = blob_client.get_container_client(CONTAINER_NAME)
+        
+        # Create container if it doesn't exist
+        try:
+            container_client.create_container()
+            logging.info(f"Created container: {CONTAINER_NAME}")
+        except Exception:
+            pass  # Container might already exist
+        
+        # Download blob
+        blob_client = container_client.get_blob_client(BLOB_NAME)
+        try:
+            blob_data = blob_client.download_blob().readall()
+            data = json.loads(blob_data.decode('utf-8'))
+            logging.info(f"✅ Loaded REQUEST_LOG from Azure Storage with {len(data)} keys")
+            return data
+        except Exception as e:
+            if "BlobNotFound" in str(e):
+                logging.info("📝 No existing blob found, starting fresh")
+            else:
+                logging.warning(f"Failed to load from storage: {e}")
+            return {}
+    except Exception as e:
+        logging.error(f"Error loading from Azure Storage: {e}")
+        return {}
+
+def save_request_log_to_storage(request_log):
+    """Save REQUEST_LOG to Azure Blob Storage (async)"""
+    def _save():
+        try:
+            blob_client = get_blob_service_client()
+            if not blob_client:
+                return
+            
+            container_client = blob_client.get_container_client(CONTAINER_NAME)
+            blob_client = container_client.get_blob_client(BLOB_NAME)
+            
+            # Upload data
+            json_data = json.dumps(request_log, default=str, indent=2)
+            blob_client.upload_blob(json_data.encode('utf-8'), overwrite=True)
+            logging.info(f"💾 Saved REQUEST_LOG to Azure Storage ({len(json_data)} bytes)")
+        except Exception as e:
+            logging.error(f"Failed to save to Azure Storage: {e}")
+    
+    # Save asynchronously to avoid blocking the request
+    executor.submit(_save)
+
+# Initialize REQUEST_LOG with Azure Storage persistence
+REQUEST_LOG = load_request_log_from_storage()
 
 # Add debug info about this instance
 REQUEST_LOG.setdefault("_debug", []).append({
     "timestamp": INSTANCE_START_TIME,
-    "message": f"Instance started (ID: {INSTANCE_ID}) - In-memory storage only",
+    "message": f"Instance started (ID: {INSTANCE_ID}) - Azure Storage enabled",
     "instance_id": INSTANCE_ID,
     "website_instance_id": os.environ.get('WEBSITE_INSTANCE_ID', 'Not set'),
-    "note": "Using in-memory storage - data persists within this instance only"
+    "storage_enabled": STORAGE_CONNECTION_STRING is not None,
+    "container_name": CONTAINER_NAME,
+    "note": "Using Azure Blob Storage for persistence across instances"
 })
+
+# Save initial debug info
+save_request_log_to_storage(REQUEST_LOG)
 
 @app.route(
     route="test",
@@ -132,6 +212,10 @@ def main_mock_endpoint(req: func.HttpRequest) -> func.HttpResponse:
                 record["body"] = None
 
         REQUEST_LOG.setdefault(path, []).append(record)
+        
+        # Save to Azure Storage asynchronously
+        save_request_log_to_storage(REQUEST_LOG)
+        
         logging.info(
             "main_mock_endpoint: stored request for '%s' (total=%d)",
             path,
@@ -923,8 +1007,21 @@ ${{formatJson(req.body)}}
                 status_code=200,
             )
         
-        # Return JSON data for API requests - pure in-memory
+        # Return JSON data for API requests - with Azure Storage
+        # First try in-memory, then reload from storage if needed
         data = REQUEST_LOG.get(path, [])
+        
+        # If no data in memory, try reloading from Azure Storage
+        if not data:
+            try:
+                fresh_data = load_request_log_from_storage()
+                if fresh_data and path in fresh_data:
+                    data = fresh_data[path]
+                    # Update in-memory cache
+                    REQUEST_LOG.update(fresh_data)
+                    logging.info("inspect_endpoint: Reloaded data from Azure Storage")
+            except Exception as e:
+                logging.warning(f"inspect_endpoint: Could not reload from Azure Storage: {e}")
         
         logging.info("inspect_endpoint: Raw data for path '%s': %s", path, data)
         logging.info("inspect_endpoint: Current REQUEST_LOG keys: %s", list(REQUEST_LOG.keys()))
@@ -987,16 +1084,19 @@ def health_check(req: func.HttpRequest) -> func.HttpResponse:
         
         # Storage Info
         "storage_info": {
-            "type": "in-memory",
-            "persistence": "instance-only",
-            "note": "Data persists within this instance lifecycle only"
+            "type": "azure-blob-storage",
+            "persistence": "cross-instance",
+            "container_name": CONTAINER_NAME,
+            "blob_name": BLOB_NAME,
+            "storage_connection_available": STORAGE_CONNECTION_STRING is not None,
+            "note": "Data persists across all instances using Azure Blob Storage"
         },
         
         # REQUEST_LOG Status
         "request_log_keys": list(REQUEST_LOG.keys()),
         "request_log_full": REQUEST_LOG,
         "total_requests": sum(len(v) if isinstance(v, list) else 0 for v in REQUEST_LOG.values()),
-        "version": "2.0-inmemory",
+        "version": "3.0-azure-storage",
         "function_url": str(req.url),
         "function_method": req.method,
         "available_routes": [
