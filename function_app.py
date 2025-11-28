@@ -4,226 +4,74 @@ import azure.functions as func
 from datetime import datetime
 import os
 import uuid
-from concurrent.futures import ThreadPoolExecutor
-import urllib.parse
-import hashlib
-import hmac
-import base64
-import requests
-from datetime import datetime, timezone
+import tempfile
 
-# This is now a regular Python module, not a FunctionApp.
-# The routing is handled by the main() function and function.json.
-
+app = func.FunctionApp()
 
 # Generate a unique instance ID to track function app instances
 INSTANCE_ID = str(uuid.uuid4())[:8]
 INSTANCE_START_TIME = datetime.utcnow().isoformat() + "Z"
 
-# Azure Storage configuration using REST API
-STORAGE_CONNECTION_STRING = os.environ.get('AzureWebJobsStorage')
-CONTAINER_NAME = 'mock-api-data'
-BLOB_NAME = 'request-log.json'
+# Use a persistent storage solution instead of temp files
+# For now, keep the temp file as fallback but make it more robust
+TEMP_FILE_PATH = os.path.join(tempfile.gettempdir(), f"mock_api_requests_{os.environ.get('WEBSITE_INSTANCE_ID', 'local')}.json")
 
-# Parse storage connection string
-def parse_connection_string(conn_str):
-    """Parse Azure Storage connection string"""
-    if not conn_str:
-        return None
-    
-    parts = {}
-    for part in conn_str.split(';'):
-        if '=' in part:
-            key, value = part.split('=', 1)
-            parts[key] = value
-    
-    return {
-        'account_name': parts.get('AccountName'),
-        'account_key': parts.get('AccountKey'),
-        'endpoint_suffix': parts.get('EndpointSuffix', 'core.windows.net')
-    }
-
-# Parse connection and check availability
-storage_config = parse_connection_string(STORAGE_CONNECTION_STRING)
-AZURE_STORAGE_AVAILABLE = storage_config is not None and all([
-    storage_config.get('account_name'),
-    storage_config.get('account_key')
-])
-
-# Debug logging for Azure Storage setup
-logging.info(f"🔍 Azure Storage Debug Info:")
-logging.info(f"  - REST API Implementation: True")
-logging.info(f"  - Connection String Present: {STORAGE_CONNECTION_STRING is not None}")
-logging.info(f"  - Connection String Length: {len(STORAGE_CONNECTION_STRING) if STORAGE_CONNECTION_STRING else 0}")
-logging.info(f"  - Account Name: {storage_config.get('account_name') if storage_config else 'N/A'}")
-logging.info(f"  - Storage Available: {AZURE_STORAGE_AVAILABLE}")
-logging.info(f"  - Container Name: {CONTAINER_NAME}")
-logging.info(f"  - Blob Name: {BLOB_NAME}")
-
-# Thread pool for async operations
-executor = ThreadPoolExecutor(max_workers=3)
-
-def create_auth_header(account_name, account_key, method, url_path, headers):
-    """Create Azure Storage authentication header"""
-    string_to_sign = f"{method}\n\n\n{headers.get('Content-Length', '')}\n\n{headers.get('Content-Type', '')}\n\n\n\n\n\n\n"
-    string_to_sign += f"x-ms-date:{headers['x-ms-date']}\n"
-    string_to_sign += f"x-ms-version:{headers['x-ms-version']}\n"
-    string_to_sign += f"/{account_name}{url_path}"
-    
-    key_bytes = base64.b64decode(account_key)
-    signature = base64.b64encode(hmac.new(key_bytes, string_to_sign.encode('utf-8'), hashlib.sha256).digest()).decode('utf-8')
-    return f"SharedKey {account_name}:{signature}"
-
-def make_storage_request(method, url_path, data=None):
-    """Make authenticated request to Azure Storage REST API"""
-    if not AZURE_STORAGE_AVAILABLE:
-        return None
-        
-    account_name = storage_config['account_name']
-    account_key = storage_config['account_key']
-    endpoint_suffix = storage_config['endpoint_suffix']
-    
-    url = f"https://{account_name}.blob.{endpoint_suffix}{url_path}"
-    
-    headers = {
-        'x-ms-date': datetime.now(timezone.utc).strftime('%a, %d %b %Y %H:%M:%S GMT'),
-        'x-ms-version': '2020-10-02'
-    }
-    
-    if data:
-        headers['Content-Type'] = 'application/octet-stream'
-        headers['Content-Length'] = str(len(data))
-    
-    headers['Authorization'] = create_auth_header(account_name, account_key, method, url_path, headers)
+def load_request_log():
+    """Load REQUEST_LOG from file if it exists, with better error handling"""
+    logging.info(f"Attempting to load REQUEST_LOG from {TEMP_FILE_PATH}")
+    logging.info(f"Instance ID: {INSTANCE_ID}, Website Instance: {os.environ.get('WEBSITE_INSTANCE_ID', 'local')}")
     
     try:
-        response = requests.request(method, url, data=data, headers=headers)
-        return response
-    except Exception as e:
-        logging.error(f"Storage request failed: {e}")
-        return None
-
-def load_request_log_from_storage():
-    """Load REQUEST_LOG from Azure Blob Storage using REST API"""
-    logging.info("📥 Starting load_request_log_from_storage (REST API)...")
-    
-    try:
-        if not AZURE_STORAGE_AVAILABLE:
-            logging.warning("❌ Azure Storage not available, returning empty dict")
-            return {}
-        
-        # Download blob
-        url_path = f"/{CONTAINER_NAME}/{BLOB_NAME}"
-        logging.info(f"📤 Downloading blob: {url_path}")
-        
-        response = make_storage_request('GET', url_path)
-        
-        if response is None:
-            logging.error("❌ Storage request failed")
-            return {}
-            
-        if response.status_code == 200:
-            data = json.loads(response.text)
-            logging.info(f"✅ Loaded REQUEST_LOG from Azure Storage with {len(data)} keys")
-            logging.info(f"📊 Data keys: {list(data.keys())}")
-            return data
-        elif response.status_code == 404:
-            logging.info("🆕 No existing blob found, starting fresh")
-            return {}
+        if os.path.exists(TEMP_FILE_PATH):
+            with open(TEMP_FILE_PATH, 'r') as f:
+                data = json.load(f)
+                logging.info(f"✅ Successfully loaded REQUEST_LOG from {TEMP_FILE_PATH} with {len(data)} keys")
+                logging.info(f"Loaded keys: {list(data.keys())}")
+                return data
         else:
-            logging.warning(f"⚠️ Unexpected response: {response.status_code} - {response.text}")
-            return {}
-            
+            logging.info(f"❌ File {TEMP_FILE_PATH} does not exist")
     except Exception as e:
-        logging.error(f"❌ Error loading from Azure Storage: {e}")
-        logging.exception("Full load error traceback:")
-        return {}
-
-def save_request_log_to_storage(request_log):
-    """Save REQUEST_LOG to Azure Blob Storage using REST API (async)"""
-    def _save():
-        logging.info("💾 Starting save_request_log_to_storage...")
-        try:
-            if not AZURE_STORAGE_AVAILABLE:
-                logging.warning("❌ Azure Storage not available for save")
-                return
-            
-            # Upload data
-            json_data = json.dumps(request_log, default=str, indent=2)
-            url_path = f"/{CONTAINER_NAME}/{BLOB_NAME}"
-            logging.info(f"📤 Uploading {len(json_data)} bytes to blob: {url_path}")
-            
-            # Create container first (PUT request)
-            container_url_path = f"/{CONTAINER_NAME}?restype=container"
-            container_response = make_storage_request('PUT', container_url_path)
-            if container_response and container_response.status_code not in [201, 409]:  # 201=created, 409=already exists
-                logging.warning(f"Container creation response: {container_response.status_code}")
-            
-            # Upload blob
-            response = make_storage_request('PUT', url_path, json_data.encode('utf-8'))
-            
-            if response and response.status_code == 201:
-                logging.info(f"✅ Saved REQUEST_LOG to Azure Storage ({len(json_data)} bytes)")
-                logging.info(f"📊 Saved keys: {list(request_log.keys())}")
-            else:
-                logging.error(f"❌ Upload failed with status: {response.status_code if response else 'None'}")
-                
-        except Exception as e:
-            logging.error(f"❌ Failed to save to Azure Storage: {e}")
-            logging.exception("Full save error traceback:")
+        logging.warning(f"❌ Failed to load REQUEST_LOG from file: {e}")
     
-    # Save asynchronously to avoid blocking the request
+    logging.info(f"🆕 Starting with empty REQUEST_LOG")
+    return {}
+
+def save_request_log():
+    """Save REQUEST_LOG to file with better error handling"""
     try:
-        executor.submit(_save)
-        logging.info("🚀 Save operation submitted to executor")
+        # Create directory if it doesn't exist
+        os.makedirs(os.path.dirname(TEMP_FILE_PATH), exist_ok=True)
+        
+        with open(TEMP_FILE_PATH, 'w') as f:
+            json.dump(REQUEST_LOG, f, default=str, indent=2)
+        
+        # Verify the file was written
+        if os.path.exists(TEMP_FILE_PATH):
+            file_size = os.path.getsize(TEMP_FILE_PATH)
+            logging.info(f"✅ Successfully saved REQUEST_LOG to {TEMP_FILE_PATH} ({file_size} bytes)")
+            logging.info(f"💾 Saved {len(REQUEST_LOG)} keys: {list(REQUEST_LOG.keys())}")
+        else:
+            logging.error(f"❌ File was not created at {TEMP_FILE_PATH}")
     except Exception as e:
-        logging.error(f"❌ Failed to submit save operation: {e}")
+        logging.error(f"❌ Failed to save REQUEST_LOG to file: {e}")
+        logging.exception("Full save error traceback:")
 
-# Initialize REQUEST_LOG with Azure Storage persistence
-REQUEST_LOG = load_request_log_from_storage()
-
-# Add debug info about this instance
+# Load existing data and add debug info
+REQUEST_LOG = load_request_log()
 REQUEST_LOG.setdefault("_debug", []).append({
     "timestamp": INSTANCE_START_TIME,
-    "message": f"Instance started (ID: {INSTANCE_ID}) - Azure Storage enabled",
+    "message": f"Instance started (ID: {INSTANCE_ID})",
     "instance_id": INSTANCE_ID,
+    "temp_file_path": TEMP_FILE_PATH,
     "website_instance_id": os.environ.get('WEBSITE_INSTANCE_ID', 'Not set'),
-    "storage_enabled": STORAGE_CONNECTION_STRING is not None and AZURE_STORAGE_AVAILABLE,
-    "container_name": CONTAINER_NAME,
-    "note": "Using Azure Blob Storage for persistence across instances"
+    "note": "File persistence may not work across instance restarts in Azure Functions"
 })
 
-# Save initial debug info
-save_request_log_to_storage(REQUEST_LOG)
-
-def main(req: func.HttpRequest) -> func.HttpResponse:
-    """
-    This is the single entry point for the Azure Function, defined by function.json.
-    It routes requests to the appropriate handler based on the path.
-    """
-    # The {*path} route in function.json captures the path here
-    path = req.route_params.get('path', '')
-    logging.info(f"main: Received {req.method} request for path: '{path}'")
-
-    # Simple router logic
-    if path == 'health':
-        return health_check(req)
-    elif path == 'debug/storage':
-        return debug_storage_endpoint(req)
-    elif path == 'inspect':
-        return inspect_all_endpoint(req)
-    elif path.startswith('inspect/'):
-        return inspect_endpoint(req)
-    elif path == 'test':
-        return test_endpoint(req)
-    elif path == 'MockApiFunction':
-        return main_mock_endpoint(req)
-    # This will now handle any path that is not explicitly defined above
-    else:
-        return catch_all_endpoint(req)
-
-# --- Handler Functions (previously decorated with @app.route) ---
-
+@app.route(
+    route="test",
+    methods=["GET", "POST"],
+    auth_level=func.AuthLevel.ANONYMOUS,
+)
 def test_endpoint(req: func.HttpRequest) -> func.HttpResponse:
     """Simple test endpoint to verify basic functionality"""
     logging.info("test_endpoint: START %s %s", req.method, req.url)
@@ -259,6 +107,11 @@ def test_endpoint(req: func.HttpRequest) -> func.HttpResponse:
         }
     )
 
+@app.route(
+    route="debug",
+    methods=["GET"],
+    auth_level=func.AuthLevel.ANONYMOUS,
+)
 def debug_endpoint(req: func.HttpRequest) -> func.HttpResponse:
     """Debug endpoint to show raw REQUEST_LOG data"""
     logging.info("debug_endpoint: START")
@@ -279,6 +132,11 @@ def debug_endpoint(req: func.HttpRequest) -> func.HttpResponse:
         }
     )
 
+@app.route(
+    route="MockApiFunction",
+    methods=["GET", "POST", "PUT", "DELETE"],
+    auth_level=func.AuthLevel.ANONYMOUS,
+)
 def main_mock_endpoint(req: func.HttpRequest) -> func.HttpResponse:
     logging.info("=" * 60)
     logging.info("main_mock_endpoint: FUNCTION CALLED!")
@@ -317,10 +175,7 @@ def main_mock_endpoint(req: func.HttpRequest) -> func.HttpResponse:
                 record["body"] = None
 
         REQUEST_LOG.setdefault(path, []).append(record)
-        
-        # Save to Azure Storage asynchronously
-        save_request_log_to_storage(REQUEST_LOG)
-        
+        save_request_log()  # Persist to file
         logging.info(
             "main_mock_endpoint: stored request for '%s' (total=%d)",
             path,
@@ -365,6 +220,11 @@ def main_mock_endpoint(req: func.HttpRequest) -> func.HttpResponse:
             status_code=500,
         )
 
+@app.route(
+    route="mock/{*path}",
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
+    auth_level=func.AuthLevel.ANONYMOUS,
+)
 def mock_endpoint(req: func.HttpRequest) -> func.HttpResponse:
     logging.info("mock_endpoint: START %s %s", req.method, req.url)
     
@@ -438,6 +298,11 @@ def mock_endpoint(req: func.HttpRequest) -> func.HttpResponse:
             status_code=500,
         )
 
+@app.route(
+    route="inspect",
+    methods=["GET"],
+    auth_level=func.AuthLevel.ANONYMOUS,
+)
 def inspect_all_endpoint(req: func.HttpRequest) -> func.HttpResponse:
     """Inspect endpoint without path parameter to show all captured requests"""
     logging.info("inspect_all_endpoint: START %s %s", req.method, req.url)
@@ -565,6 +430,11 @@ def inspect_all_endpoint(req: func.HttpRequest) -> func.HttpResponse:
             status_code=500,
         )
 
+@app.route(
+    route="inspect/{*path}",
+    methods=["GET"],
+    auth_level=func.AuthLevel.ANONYMOUS,
+)
 def inspect_endpoint(req: func.HttpRequest) -> func.HttpResponse:
     logging.info("inspect_endpoint: START %s %s", req.method, req.url)
     logging.info("inspect_endpoint: Headers: %s", dict(req.headers))
@@ -1097,24 +967,10 @@ ${{formatJson(req.body)}}
                 status_code=200,
             )
         
-        # Return JSON data for API requests - with Azure Storage
-        # First try in-memory, then reload from storage if needed
+        # Return JSON data for API requests
         data = REQUEST_LOG.get(path, [])
         
-        # If no data in memory, try reloading from Azure Storage
-        if not data:
-            try:
-                fresh_data = load_request_log_from_storage()
-                if fresh_data and path in fresh_data:
-                    data = fresh_data[path]
-                    # Update in-memory cache
-                    REQUEST_LOG.update(fresh_data)
-                    logging.info("inspect_endpoint: Reloaded data from Azure Storage")
-            except Exception as e:
-                logging.warning(f"inspect_endpoint: Could not reload from Azure Storage: {e}")
-        
         logging.info("inspect_endpoint: Raw data for path '%s': %s", path, data)
-        logging.info("inspect_endpoint: Current REQUEST_LOG keys: %s", list(REQUEST_LOG.keys()))
         
         # Temporarily remove filtering to see all data
         if not isinstance(data, list):
@@ -1149,9 +1005,37 @@ ${{formatJson(req.body)}}
             status_code=500,
         )
 
+@app.route(
+    route="health",
+    methods=["GET"],
+    auth_level=func.AuthLevel.ANONYMOUS,
+)
 def health_check(req: func.HttpRequest) -> func.HttpResponse:
-    """Health check with Azure Functions environment info"""
+    """Health check with detailed Azure Functions environment info"""
     logging.info("health_check: START")
+    
+    # Check file system status
+    file_exists = os.path.exists(TEMP_FILE_PATH)
+    file_size = 0
+    file_permissions = "N/A"
+    temp_dir_writable = False
+    
+    try:
+        if file_exists:
+            file_size = os.path.getsize(TEMP_FILE_PATH)
+            file_permissions = oct(os.stat(TEMP_FILE_PATH).st_mode)[-3:]
+    except Exception as e:
+        logging.warning(f"Error checking file stats: {e}")
+    
+    try:
+        # Test if we can write to temp directory
+        test_file = os.path.join(tempfile.gettempdir(), f"test_{INSTANCE_ID}.tmp")
+        with open(test_file, 'w') as f:
+            f.write("test")
+        os.remove(test_file)
+        temp_dir_writable = True
+    except Exception as e:
+        logging.warning(f"Temp directory not writable: {e}")
     
     health_info = {
         "status": "healthy",
@@ -1167,21 +1051,22 @@ def health_check(req: func.HttpRequest) -> func.HttpResponse:
             "functions_worker_runtime": os.environ.get('FUNCTIONS_WORKER_RUNTIME', 'Not set'),
         },
         
-        # Storage Info
-        "storage_info": {
-            "type": "azure-blob-storage",
-            "persistence": "cross-instance",
-            "container_name": CONTAINER_NAME,
-            "blob_name": BLOB_NAME,
-            "storage_connection_available": STORAGE_CONNECTION_STRING is not None and AZURE_STORAGE_AVAILABLE,
-            "note": "Data persists across all instances using Azure Blob Storage"
+        # File System Status
+        "file_system": {
+            "temp_file_path": TEMP_FILE_PATH,
+            "file_exists": file_exists,
+            "file_size_bytes": file_size,
+            "file_permissions": file_permissions,
+            "temp_dir": tempfile.gettempdir(),
+            "temp_dir_writable": temp_dir_writable,
+            "cwd": os.getcwd(),
         },
         
         # REQUEST_LOG Status
         "request_log_keys": list(REQUEST_LOG.keys()),
         "request_log_full": REQUEST_LOG,
         "total_requests": sum(len(v) if isinstance(v, list) else 0 for v in REQUEST_LOG.values()),
-        "version": "3.0-azure-storage",
+        "version": "1.1",
         "function_url": str(req.url),
         "function_method": req.method,
         "available_routes": [
@@ -1204,138 +1089,3 @@ def health_check(req: func.HttpRequest) -> func.HttpResponse:
             "Access-Control-Allow-Headers": "Content-Type, Accept"
         }
     )
-
-def debug_storage_endpoint(req: func.HttpRequest) -> func.HttpResponse:
-    """Debug endpoint to test Azure Storage connection"""
-    logging.info("debug_storage_endpoint: START")
-    
-    debug_info = {
-        "azure_storage_sdk_available": AZURE_STORAGE_AVAILABLE,
-        "connection_string_available": STORAGE_CONNECTION_STRING is not None,
-        "connection_string_length": len(STORAGE_CONNECTION_STRING) if STORAGE_CONNECTION_STRING else 0,
-        "container_name": CONTAINER_NAME,
-        "blob_name": BLOB_NAME,
-        "test_results": {}
-    }
-    
-    # Test storage configuration and REST API
-    try:
-        debug_info["test_results"]["storage_config"] = "SUCCESS" if storage_config else "FAILED"
-        debug_info["test_results"]["azure_storage_available"] = AZURE_STORAGE_AVAILABLE
-        
-        if AZURE_STORAGE_AVAILABLE:
-            # Test blob access using REST API
-            try:
-                url_path = f"/{CONTAINER_NAME}/{BLOB_NAME}"
-                response = make_storage_request('HEAD', url_path)
-                if response:
-                    debug_info["test_results"]["blob_access"] = f"HTTP {response.status_code}"
-                else:
-                    debug_info["test_results"]["blob_access"] = "FAILED - No response"
-            except Exception as e:
-                debug_info["test_results"]["blob_access"] = f"FAILED: {e}"
-            
-            # Test container access
-            try:
-                container_url_path = f"/{CONTAINER_NAME}?restype=container"
-                response = make_storage_request('HEAD', container_url_path)
-                if response:
-                    debug_info["test_results"]["container_access"] = f"HTTP {response.status_code}"
-                else:
-                    debug_info["test_results"]["container_access"] = "FAILED - No response"
-            except Exception as e:
-                debug_info["test_results"]["container_access"] = f"FAILED: {e}"
-                
-            # Test load function
-            try:
-                test_log = load_request_log_from_storage()
-                debug_info["test_results"]["load_function"] = f"SUCCESS - {len(test_log)} entries"
-            except Exception as e:
-                debug_info["test_results"]["load_function"] = f"FAILED: {e}"
-        else:
-            debug_info["test_results"]["blob_access"] = "SKIPPED - Storage not available"
-            debug_info["test_results"]["container_access"] = "SKIPPED - Storage not available"
-            debug_info["test_results"]["load_function"] = "SKIPPED - Storage not available"
-                
-    except Exception as e:
-        debug_info["test_results"]["storage_test"] = f"FAILED: {e}"
-    
-    return func.HttpResponse(
-        body=json.dumps(debug_info, indent=2, default=str),
-        mimetype="application/json",
-        status_code=200,
-        headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET",
-            "Access-Control-Allow-Headers": "Content-Type, Accept"
-        }
-    )
-
-# Catch-all route to handle any request that doesn't match other routes
-def catch_all_endpoint(req: func.HttpRequest) -> func.HttpResponse:
-    """Catch-all endpoint to handle any request path"""
-    logging.info("=" * 60)
-    logging.info("catch_all_endpoint: FUNCTION CALLED!")
-    logging.info("catch_all_endpoint: Method=%s URL=%s", req.method, req.url)
-    
-    # Extract path from route parameters
-    path = req.route_params.get('path', 'unknown')
-    logging.info("catch_all_endpoint: Captured path=%s", path)
-    
-    try:
-        record = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
-            "method": req.method,
-            "path": path,
-            "query": dict(req.params),
-            "headers": dict(req.headers),
-            "body": req.get_body().decode('utf-8') if req.get_body() else None,
-            "endpoint": "catch-all",
-            "url": req.url
-        }
-        
-        # Store in REQUEST_LOG
-        REQUEST_LOG.setdefault(path, []).append(record)
-        
-        # Log the capture
-        logging.info("✅ catch_all_endpoint: Captured %s request to %s", req.method, path)
-        
-        # Save to storage asynchronously
-        save_request_log_to_storage(REQUEST_LOG)
-        
-        # Return success response
-        return func.HttpResponse(
-            body=json.dumps({
-                "status": "captured",
-                "message": f"Captured {req.method} request to {path}",
-                "timestamp": record["timestamp"],
-                "path": path,
-                "endpoint": "catch-all"
-            }, indent=2),
-            mimetype="application/json", 
-            status_code=200,
-            headers={
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS",
-                "Access-Control-Allow-Headers": "Content-Type, Accept, Authorization"
-            }
-        )
-        
-    except Exception as e:
-        logging.error("❌ catch_all_endpoint: Error processing request: %s", e)
-        logging.exception("Full error traceback:")
-        
-        return func.HttpResponse(
-            body=json.dumps({
-                "status": "error",
-                "message": f"Error processing request: {str(e)}",
-                "path": path
-            }, indent=2),
-            mimetype="application/json",
-            status_code=500,
-            headers={
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS", 
-                "Access-Control-Allow-Headers": "Content-Type, Accept, Authorization"
-            }
-        )
