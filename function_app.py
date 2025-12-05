@@ -209,7 +209,7 @@ def main_mock_endpoint(req: func.HttpRequest) -> func.HttpResponse:
             status_code=500,
         )
 
-@app.route(route="inspect/{path:alpha}", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
+@app.route(route="inspect/{path:alpha}", methods=["GET"], auth_level=func.AuthLevel.FUNCTION)
 def inspect_endpoint(req: func.HttpRequest) -> func.HttpResponse:
     path = req.route_params.get('path', '')
     
@@ -604,6 +604,10 @@ def inspect_endpoint(req: func.HttpRequest) -> func.HttpResponse:
         // Path variable for API calls
         const currentPath = "{path}";
         
+        // Get function key from URL query parameter
+        const urlParams = new URLSearchParams(window.location.search);
+        const functionKey = urlParams.get('code') || '';
+        
         let autoRefreshEnabled = true;
         let refreshInterval;
         let expandedStates = new Set();
@@ -673,7 +677,9 @@ def inspect_endpoint(req: func.HttpRequest) -> func.HttpResponse:
             if (refreshInterval) clearInterval(refreshInterval);
             refreshInterval = setInterval(() => {
                 if (autoRefreshEnabled) {
-                    location.reload();
+                    // Preserve the code parameter when reloading
+                    const currentUrl = new URL(window.location.href);
+                    window.location.href = currentUrl.href;
                 }
             }, 2000);
         }
@@ -698,7 +704,11 @@ def inspect_endpoint(req: func.HttpRequest) -> func.HttpResponse:
             clearBtn.innerHTML = '<span>⏳</span><span>Clearing...</span>';
             
             try {
-                const url = `/api/clear/${{currentPath}}`;
+                // Build URL with function key if available
+                let url = `/api/clear/${{currentPath}}`;
+                if (functionKey) {
+                    url += `?code=${{functionKey}}`;
+                }
                 console.log('Fetching:', url);
                 
                 const response = await fetch(url, {
@@ -815,7 +825,7 @@ def serve_logo(req: func.HttpRequest) -> func.HttpResponse:
     except Exception as e:
         return func.HttpResponse(f"Error serving logo: {str(e)}", status_code=500)
 
-@app.route(route="clear/{path:alpha}", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
+@app.route(route="clear/{path:alpha}", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
 def clear_requests(req: func.HttpRequest) -> func.HttpResponse:
     """Clear all requests for a specific path"""
     path = req.route_params.get('path', '')
@@ -861,7 +871,7 @@ def clear_requests(req: func.HttpRequest) -> func.HttpResponse:
             headers={"Access-Control-Allow-Origin": "*"}
         )
 
-@app.route(route="health", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
+@app.route(route="health", methods=["GET"], auth_level=func.AuthLevel.FUNCTION)
 def health_check(req: func.HttpRequest) -> func.HttpResponse:
     # Test Azure Storage connectivity
     storage_test_result = False
