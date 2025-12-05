@@ -18,7 +18,6 @@ A professional Azure Functions-based API monitoring and mocking platform with a 
 
 ### 🔧 **Advanced Management**
 - **Auto-cleanup**: Requests older than 1 hour automatically removed
-- **Manual clearing**: One-click clear all functionality with confirmation
 - **Collapsible views**: Expandable request cards with state persistence
 - **Auto-refresh control**: 2-second refresh with pause/resume capability
 
@@ -131,7 +130,6 @@ GET /api/inspect/{path}
 - 🔄 **Auto-refresh** with 2-second intervals and pause control
 - 📱 **Responsive design** optimized for all devices
 - 🗂️ **Collapsible cards** with persistent expand/collapse state
-- 🗑️ **Clear all button** with confirmation and visual feedback
 
 **Live Dashboard**: https://sspengmock-e6ghe2fthbdqhaeb.uksouth-01.azurewebsites.net/api/inspect/MockApiFunction
 
@@ -141,11 +139,6 @@ GET /api/inspect/{path}?format=json
 ```
 Programmatic access to captured request data.
 
-#### Clear Requests
-```
-POST /api/clear/{path}
-```
-Manually clear all requests for a specific endpoint.
 
 #### System Health
 ```
@@ -186,7 +179,6 @@ Serves the integrated logo for the web interface.
 
 ### 🔧 **Interactive Controls**
 - **Auto-refresh toggle**: 🔄 Active (2s refresh) ↔ ⏸️ Paused
-- **Clear all button**: 🗑️ One-click clearing with confirmation dialog
 - **Visual feedback**: Loading states, success confirmations, error handling
 - **State persistence**: Remembers expanded cards across page refreshes
 
@@ -435,11 +427,6 @@ func start --verbose
 - ✅ Check browser console for JavaScript errors
 - ✅ Ensure auto-refresh is enabled (🔄 green button)
 - ✅ Try manual page refresh
-
-**Clear button not working**:
-- ✅ Check browser console for fetch errors
-- ✅ Verify network connectivity to `/api/clear/{path}`
-- ✅ Ensure confirmation dialog is accepted
 
 **Azure Storage errors**:
 ```bash

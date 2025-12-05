@@ -289,6 +289,21 @@ def inspect_endpoint(req: func.HttpRequest) -> func.HttpResponse:
         .auto-refresh-btn:hover {{ background: #059669; }}
         .auto-refresh-btn.paused {{ background: #ef4444; }}
         .auto-refresh-btn.paused:hover {{ background: #dc2626; }}
+        .help-btn {{
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.875rem;
+            font-weight: 500;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }}
+        .help-btn:hover {{ background: #2563eb; }}
         .clear-btn {{
             background: #ef4444;
             color: white;
@@ -476,6 +491,93 @@ def inspect_endpoint(req: func.HttpRequest) -> func.HttpResponse:
         .empty-description {{
             color: #6b7280;
         }}
+        .modal {{
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            animation: fadeIn 0.2s;
+        }}
+        .modal.show {{ display: flex; align-items: center; justify-content: center; }}
+        .modal-content {{
+            background: white;
+            border-radius: 12px;
+            padding: 2rem;
+            max-width: 600px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04);
+            animation: slideIn 0.3s;
+        }}
+        .modal-header {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }}
+        .modal-title {{
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #1e293b;
+        }}
+        .close-btn {{
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            color: #64748b;
+            cursor: pointer;
+            padding: 0;
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }}
+        .close-btn:hover {{ background: #f1f5f9; color: #1e293b; }}
+        .endpoint-section {{
+            margin-bottom: 1.5rem;
+        }}
+        .endpoint-title {{
+            font-size: 1.125rem;
+            font-weight: 600;
+            color: #1e293b;
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }}
+        .endpoint-method {{
+            font-size: 0.75rem;
+            padding: 2px 6px;
+            border-radius: 3px;
+            color: white;
+            font-weight: 700;
+        }}
+        .endpoint-url {{
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            padding: 0.75rem;
+            font-family: monospace;
+            font-size: 0.875rem;
+            color: #475569;
+            margin: 0.5rem 0;
+            word-break: break-all;
+        }}
+        .endpoint-description {{
+            color: #64748b;
+            font-size: 0.875rem;
+            line-height: 1.5;
+        }}
+        @keyframes fadeIn {{ from {{ opacity: 0; }} to {{ opacity: 1; }} }}
+        @keyframes slideIn {{ from {{ transform: translateY(-20px); opacity: 0; }} to {{ transform: translateY(0); opacity: 1; }} }}
         @media (max-width: 768px) {{
             .navbar {{ padding: 1rem; }}
             .container {{ padding: 1rem; }}
@@ -491,6 +593,10 @@ def inspect_endpoint(req: func.HttpRequest) -> func.HttpResponse:
             <div class="brand">API Monitor</div>
         </div>
         <div class="controls">
+            <button class="help-btn" onclick="toggleHelp()">
+                <span>❓</span>
+                <span>Help</span>
+            </button>
             <button class="auto-refresh-btn" id="autoRefreshBtn" onclick="toggleAutoRefresh()">
                 <span id="refreshIcon">🔄</span>
                 <span id="refreshText">Auto-refresh: 2s</span>
@@ -520,6 +626,72 @@ def inspect_endpoint(req: func.HttpRequest) -> func.HttpResponse:
             <div class="stat">
                 <div class="stat-value">{'✅' if AZURE_STORAGE_AVAILABLE else '❌'}</div>
                 <div class="stat-label">Storage</div>
+            </div>
+        </div>
+        
+        <!-- Help Modal -->
+        <div class="modal" id="helpModal" onclick="if(event.target === this) toggleHelp()">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 class="modal-title">📚 API Endpoints & Help<br><small style="font-size: 0.75rem; font-weight: 400; color: #64748b;">💡 Tip: Pause auto-refresh to keep this modal open while reading</small></h2>
+                    <button class="close-btn" onclick="toggleHelp()">×</button>
+                </div>
+                
+                <div class="endpoint-section">
+                    <div class="endpoint-title">
+                        <span class="endpoint-method method-post">POST</span>
+                        <span class="endpoint-method method-get">GET</span>
+                        Mock API Endpoint
+                    </div>
+                    <div class="endpoint-url">/api/MockApiFunction</div>
+                    <p class="endpoint-description">
+                        Send any HTTP request (GET, POST, PUT, DELETE) to this endpoint. All requests are captured and stored for 1 hour. View captured requests in the dashboard above.
+                    </p>
+                </div>
+                
+                <div class="endpoint-section">
+                    <div class="endpoint-title">
+                        <span class="endpoint-method method-get">GET</span>
+                        Inspect Dashboard
+                    </div>
+                    <div class="endpoint-url">/api/inspect/{{path}}?code=YOUR_KEY</div>
+                    <p class="endpoint-description">
+                        🔒 Protected endpoint. View captured requests in a beautiful web interface. Replace {{path}} with your endpoint name (e.g., MockApiFunction). Requires authentication key.
+                    </p>
+                </div>
+                
+                <div class="endpoint-section">
+                    <div class="endpoint-title">
+                        <span class="endpoint-method method-get">GET</span>
+                        Health Check
+                    </div>
+                    <div class="endpoint-url">/api/health?code=YOUR_KEY</div>
+                    <p class="endpoint-description">
+                        🔒 Protected endpoint. Check system status, Azure Storage connectivity, and instance information. Requires authentication key.
+                    </p>
+                </div>
+                
+                <div class="endpoint-section">
+                    <div class="endpoint-title">
+                        <span class="endpoint-method method-get">GET</span>
+                        Logo Asset
+                    </div>
+                    <div class="endpoint-url">/api/logo.png</div>
+                    <p class="endpoint-description">
+                        Serves the application logo image. No authentication required.
+                    </p>
+                </div>
+                
+                <div style="margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid #e2e8f0;">
+                    <h3 style="font-size: 1rem; font-weight: 600; color: #1e293b; margin-bottom: 0.5rem;">ℹ️ Features</h3>
+                    <ul style="color: #64748b; font-size: 0.875rem; line-height: 1.8; padding-left: 1.5rem;">
+                        <li>⏱️ Auto-cleanup: Requests older than 1 hour are automatically removed</li>
+                        <li>☁️ Azure Storage: Persistent data across function restarts</li>
+                        <li>🔄 Auto-refresh: Dashboard updates every 2 seconds (can be paused)</li>
+                        <li>📱 Responsive: Works on desktop and mobile devices</li>
+                        <li>🔒 Secure: Protected endpoints require authentication keys</li>
+                    </ul>
+                </div>
             </div>
         </div>
         
@@ -651,6 +823,27 @@ def inspect_endpoint(req: func.HttpRequest) -> func.HttpResponse:
             }}
         }}
         
+        function toggleHelp() {{
+            const modal = document.getElementById('helpModal');
+            const isShowing = modal.classList.contains('show');
+            modal.classList.toggle('show');
+            
+            // Store modal state in localStorage
+            if (isShowing) {{
+                localStorage.removeItem('helpModalOpen');
+            }} else {{
+                localStorage.setItem('helpModalOpen', 'true');
+            }}
+        }}
+        
+        function restoreHelpModal() {{
+            const wasOpen = localStorage.getItem('helpModalOpen');
+            if (wasOpen === 'true') {{
+                const modal = document.getElementById('helpModal');
+                modal.classList.add('show');
+            }}
+        }}
+        
         function toggleAutoRefresh() {{
             const btn = document.getElementById('autoRefreshBtn');
             const icon = document.getElementById('refreshIcon');
@@ -776,6 +969,7 @@ def inspect_endpoint(req: func.HttpRequest) -> func.HttpResponse:
             }}
             
             restoreExpandedStates();
+            restoreHelpModal();
             startAutoRefresh();
         }});
     </script>
