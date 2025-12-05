@@ -480,3 +480,6 @@ MIT License - feel free to use this project for your API testing and monitoring 
 ---
 
 *Made with 💜 for API developers who need reliable request monitoring and testing tools* 🚀
+
+
+func azure functionapp publish sspengMock --python

@@ -491,10 +491,6 @@ def inspect_endpoint(req: func.HttpRequest) -> func.HttpResponse:
             <div class="brand">API Monitor</div>
         </div>
         <div class="controls">
-            <button class="clear-btn" onclick="clearRequests()">
-                <span>🗑️</span>
-                <span>Clear All</span>
-            </button>
             <button class="auto-refresh-btn" id="autoRefreshBtn" onclick="toggleAutoRefresh()">
                 <span id="refreshIcon">🔄</span>
                 <span id="refreshText">Auto-refresh: 2s</span>
@@ -596,195 +592,205 @@ def inspect_endpoint(req: func.HttpRequest) -> func.HttpResponse:
                     </div>
                     """
             
-            html_content += """
+            html_content += f"""
         </div>
     </div>
     
     <script>
         // Path variable for API calls
-        const currentPath = "{path}";
+        const currentPath = '{path}';
+        console.log('Current path set to:', currentPath);
         
         // Get function key from URL query parameter
         const urlParams = new URLSearchParams(window.location.search);
         const functionKey = urlParams.get('code') || '';
+        console.log('Function key present:', !!functionKey);
         
         let autoRefreshEnabled = true;
         let refreshInterval;
         let expandedStates = new Set();
         
-        function toggleRequest(index) {
-            const details = document.getElementById(`details-${index}`);
-            const icon = document.getElementById(`icon-${index}`);
+        function toggleRequest(index) {{
+            const details = document.getElementById(`details-${{index}}`);
+            const icon = document.getElementById(`icon-${{index}}`);
             
-            if (details.classList.contains('expanded')) {
+            if (details.classList.contains('expanded')) {{
                 details.classList.remove('expanded');
                 icon.classList.remove('expanded');
                 icon.textContent = '▼';
                 expandedStates.delete(index);
-            } else {
+            }} else {{
                 details.classList.add('expanded');
                 icon.classList.add('expanded');
                 icon.textContent = '▲';
                 expandedStates.add(index);
-            }
+            }}
             
             // Store in localStorage
             localStorage.setItem('expandedStates', JSON.stringify([...expandedStates]));
-        }
+        }}
         
-        function restoreExpandedStates() {
-            try {
+        function restoreExpandedStates() {{
+            try {{
                 const stored = localStorage.getItem('expandedStates');
-                if (stored) {
+                if (stored) {{
                     const states = JSON.parse(stored);
-                    states.forEach(index => {
-                        const details = document.getElementById(`details-${index}`);
-                        const icon = document.getElementById(`icon-${index}`);
-                        if (details && icon) {
+                    states.forEach(index => {{
+                        const details = document.getElementById(`details-${{index}}`);
+                        const icon = document.getElementById(`icon-${{index}}`);
+                        if (details && icon) {{
                             details.classList.add('expanded');
                             icon.classList.add('expanded');
                             icon.textContent = '▲';
                             expandedStates.add(index);
-                        }
-                    });
-                }
-            } catch (e) {
+                        }}
+                    }});
+                }}
+            }} catch (e) {{
                 // Ignore localStorage errors
-            }
-        }
+            }}
+        }}
         
-        function toggleAutoRefresh() {
+        function toggleAutoRefresh() {{
             const btn = document.getElementById('autoRefreshBtn');
             const icon = document.getElementById('refreshIcon');
             const text = document.getElementById('refreshText');
             
             autoRefreshEnabled = !autoRefreshEnabled;
             
-            if (autoRefreshEnabled) {
+            if (autoRefreshEnabled) {{
                 btn.classList.remove('paused');
                 icon.textContent = '🔄';
                 text.textContent = 'Auto-refresh: 2s';
                 startAutoRefresh();
-            } else {
+            }} else {{
                 btn.classList.add('paused');
                 icon.textContent = '⏸️';
                 text.textContent = 'Paused';
                 clearInterval(refreshInterval);
-            }
-        }
+            }}
+        }}
         
-        function startAutoRefresh() {
+        function startAutoRefresh() {{
             if (refreshInterval) clearInterval(refreshInterval);
-            refreshInterval = setInterval(() => {
-                if (autoRefreshEnabled) {
+            refreshInterval = setInterval(() => {{
+                if (autoRefreshEnabled) {{
                     // Preserve the code parameter when reloading
                     const currentUrl = new URL(window.location.href);
                     window.location.href = currentUrl.href;
-                }
-            }, 2000);
-        }
+                }}
+            }}, 2000);
+        }}
         
-        async function clearRequests() {
+        async function clearRequests() {{
             console.log('clearRequests function called');
             
-            if (!confirm('Are you sure you want to clear all requests for this endpoint?')) {
+            if (!confirm('Are you sure you want to clear all requests for this endpoint?')) {{
                 console.log('User cancelled clear operation');
                 return;
-            }
+            }}
             
             const clearBtn = document.querySelector('.clear-btn');
-            if (!clearBtn) {
+            if (!clearBtn) {{
                 console.error('Clear button not found');
                 return;
-            }
+            }}
             
             console.log('Starting clear operation...');
             const originalText = clearBtn.innerHTML;
             clearBtn.disabled = true;
             clearBtn.innerHTML = '<span>⏳</span><span>Clearing...</span>';
             
-            try {
+            try {{
                 // Build URL with function key if available
                 let url = `/api/clear/${{currentPath}}`;
-                if (functionKey) {
+                if (functionKey) {{
                     url += `?code=${{functionKey}}`;
-                }
+                }}
                 console.log('Fetching:', url);
                 
-                const response = await fetch(url, {
+                const response = await fetch(url, {{
                     method: 'POST',
-                    headers: {
+                    headers: {{
                         'Content-Type': 'application/json'
-                    }
-                });
+                    }}
+                }});
                 
                 console.log('Response status:', response.status);
                 console.log('Response ok:', response.ok);
                 
-                if (response.ok) {
+                if (response.ok) {{
                     const result = await response.json();
                     console.log('Result:', result);
                     
-                    if (result.success) {
+                    if (result.success) {{
                         clearBtn.innerHTML = '<span>✅</span><span>Cleared!</span>';
                         console.log('Clear successful, clearing localStorage and reloading page in 1 second...');
                         
                         // Clear localStorage to reset expanded states
-                        try {
+                        try {{
                             localStorage.removeItem('expandedStates');
-                        } catch (e) {
+                        }} catch (e) {{
                             console.log('Could not clear localStorage');
-                        }
+                        }}
                         
-                        setTimeout(() => {
+                        setTimeout(() => {{
                             window.location.reload(true); // Force reload from server
-                        }, 1000);
-                    } else {
+                        }}, 1000);
+                    }} else {{
                         throw new Error(result.message || 'Clear operation failed');
-                    }
-                } else {
+                    }}
+                }} else {{
                     const errorText = await response.text();
                     console.error('HTTP error response:', errorText);
-                    throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
-                }
-            } catch (error) {
+                    throw new Error(`HTTP error! status: ${{response.status}} - ${{errorText}}`);
+                }}
+            }} catch (error) {{
                 console.error('Error clearing requests:', error);
                 clearBtn.innerHTML = '<span>❌</span><span>Error</span>';
-                setTimeout(() => {
+                setTimeout(() => {{
                     clearBtn.disabled = false;
                     clearBtn.innerHTML = originalText;
-                }, 2000);
-            }
-        }
+                }}, 2000);
+            }}
+        }}
         
         // Initialize on page load
-        document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('DOMContentLoaded', function() {{
             console.log('DOM loaded, initializing...');
             
             // Check if clear button exists and attach event
             const clearBtn = document.querySelector('.clear-btn');
-            if (clearBtn) {
+            if (clearBtn) {{
                 console.log('Clear button found, onclick should work');
-            } else {
+            }} else {{
                 console.error('Clear button NOT found');
-            }
+            }}
             
             // Check if auto-refresh button exists
             const refreshBtn = document.getElementById('autoRefreshBtn');
-            if (refreshBtn) {
+            if (refreshBtn) {{
                 console.log('Auto-refresh button found');
-            } else {
+            }} else {{
                 console.error('Auto-refresh button NOT found');
-            }
+            }}
             
             restoreExpandedStates();
             startAutoRefresh();
-        });
+        }});
     </script>
 </body>
 </html>
 """
-            return func.HttpResponse(html_content, mimetype="text/html")
+            return func.HttpResponse(
+                html_content, 
+                mimetype="text/html",
+                headers={
+                    "Cache-Control": "no-cache, no-store, must-revalidate",
+                    "Pragma": "no-cache",
+                    "Expires": "0"
+                }
+            )
         
         # Return JSON data for API requests using fresh data
         data = fresh_data.get(path, [])
@@ -825,7 +831,7 @@ def serve_logo(req: func.HttpRequest) -> func.HttpResponse:
     except Exception as e:
         return func.HttpResponse(f"Error serving logo: {str(e)}", status_code=500)
 
-@app.route(route="clear/{path:alpha}", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
+@app.route(route="clear/{path}", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
 def clear_requests(req: func.HttpRequest) -> func.HttpResponse:
     """Clear all requests for a specific path"""
     path = req.route_params.get('path', '')
